@@ -1,3 +1,10 @@
+# Rust build artifacts
+/target/
+**/target/
+
+# Cargo lock for libraries (keep for binaries)
+# Cargo.lock is included for the binary crate
+
 # Prerequisites
 *.d
 
@@ -22,10 +29,6 @@
 *.dylib
 *.dll
 
-# Fortran module files
-*.mod
-*.smod
-
 # Compiled Static libraries
 *.lai
 *.la
@@ -37,5 +40,20 @@
 *.out
 *.app
 
-# debug information files
+# Debug information files
 *.dwo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local

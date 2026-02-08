@@ -1,0 +1,31 @@
+[package]
+name = "openswarm-connector"
+description = "JSON-RPC API server and CLI binary for OpenSwarm Connector sidecar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "openswarm-connector"
+path = "src/main.rs"
+
+[dependencies]
+openswarm-protocol = { workspace = true }
+openswarm-network = { workspace = true }
+openswarm-consensus = { workspace = true }
+openswarm-hierarchy = { workspace = true }
+openswarm-state = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+toml = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+ed25519-dalek = { workspace = true }

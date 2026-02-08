@@ -1,0 +1,16 @@
+[package]
+name = "openswarm-hierarchy"
+description = "Dynamic Pyramid Allocation and role management for OpenSwarm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+openswarm-protocol = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }

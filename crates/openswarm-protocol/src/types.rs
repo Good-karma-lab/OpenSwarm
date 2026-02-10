@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::identity::AgentId;
@@ -195,6 +196,132 @@ pub struct ProofOfWork {
     pub difficulty: u32,
 }
 
+// ── Swarm Identity ──
+
+/// Unique identifier for a swarm. The default public swarm uses "public".
+/// Private swarms use a generated UUID-based ID.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SwarmId(pub String);
+
+impl SwarmId {
+    pub fn new(id: String) -> Self {
+        Self(id)
+    }
+
+    /// Create the default public swarm ID.
+    pub fn default_public() -> Self {
+        Self(crate::constants::DEFAULT_SWARM_ID.to_string())
+    }
+
+    /// Generate a new unique swarm ID.
+    pub fn generate() -> Self {
+        Self(Uuid::new_v4().to_string())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn is_public(&self) -> bool {
+        self.0 == crate::constants::DEFAULT_SWARM_ID
+    }
+}
+
+impl std::fmt::Display for SwarmId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Authentication token for joining a private swarm.
+/// Generated from HMAC-SHA256(swarm_id, creator_secret).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SwarmToken(pub String);
+
+impl SwarmToken {
+    pub fn new(token: String) -> Self {
+        Self(token)
+    }
+
+    /// Generate a token from a swarm ID and a secret passphrase.
+    pub fn generate(swarm_id: &SwarmId, secret: &str) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(swarm_id.as_str().as_bytes());
+        hasher.update(b":");
+        hasher.update(secret.as_bytes());
+        let hash = hasher.finalize();
+        Self(hex::encode(hash))
+    }
+
+    /// Verify that a token matches a swarm ID and secret.
+    pub fn verify(&self, swarm_id: &SwarmId, secret: &str) -> bool {
+        let expected = Self::generate(swarm_id, secret);
+        self.0 == expected.0
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for SwarmToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Only show first 8 chars for security
+        if self.0.len() > 8 {
+            write!(f, "{}...", &self.0[..8])
+        } else {
+            write!(f, "{}", self.0)
+        }
+    }
+}
+
+/// Metadata about a swarm, stored in DHT and tracked locally.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwarmInfo {
+    /// Unique swarm identifier.
+    pub swarm_id: SwarmId,
+    /// Human-readable name of the swarm.
+    pub name: String,
+    /// Whether the swarm is public (joinable without token).
+    pub is_public: bool,
+    /// Number of agents currently in this swarm.
+    pub agent_count: u64,
+    /// The agent who created this swarm.
+    pub creator: AgentId,
+    /// When the swarm was created.
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// Optional description.
+    pub description: String,
+}
+
+impl SwarmInfo {
+    /// Create a new public swarm info.
+    pub fn new_public(creator: AgentId) -> Self {
+        Self {
+            swarm_id: SwarmId::default_public(),
+            name: crate::constants::DEFAULT_SWARM_NAME.to_string(),
+            is_public: true,
+            agent_count: 1,
+            creator,
+            created_at: chrono::Utc::now(),
+            description: "Default public swarm - open to all agents".to_string(),
+        }
+    }
+
+    /// Create a new private swarm info.
+    pub fn new_private(name: String, creator: AgentId, description: String) -> Self {
+        Self {
+            swarm_id: SwarmId::generate(),
+            name,
+            is_public: false,
+            agent_count: 1,
+            creator,
+            created_at: chrono::Utc::now(),
+            description,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +350,57 @@ mod tests {
     fn test_tier_ordering() {
         assert!(Tier::Tier1.depth() < Tier::Tier2.depth());
         assert!(Tier::Tier2.depth() < Tier::TierN(3).depth());
+    }
+
+    #[test]
+    fn test_swarm_id_default_public() {
+        let id = SwarmId::default_public();
+        assert_eq!(id.as_str(), "public");
+        assert!(id.is_public());
+    }
+
+    #[test]
+    fn test_swarm_id_generate() {
+        let id1 = SwarmId::generate();
+        let id2 = SwarmId::generate();
+        assert_ne!(id1, id2);
+        assert!(!id1.is_public());
+    }
+
+    #[test]
+    fn test_swarm_token_generate_and_verify() {
+        let swarm_id = SwarmId::new("test-swarm".to_string());
+        let secret = "my-secret-passphrase";
+        let token = SwarmToken::generate(&swarm_id, secret);
+
+        assert!(token.verify(&swarm_id, secret));
+        assert!(!token.verify(&swarm_id, "wrong-secret"));
+        assert!(!token.verify(&SwarmId::new("other-swarm".to_string()), secret));
+    }
+
+    #[test]
+    fn test_swarm_token_deterministic() {
+        let swarm_id = SwarmId::new("test-swarm".to_string());
+        let secret = "my-secret";
+        let token1 = SwarmToken::generate(&swarm_id, secret);
+        let token2 = SwarmToken::generate(&swarm_id, secret);
+        assert_eq!(token1, token2);
+    }
+
+    #[test]
+    fn test_swarm_info_public() {
+        let creator = AgentId::new("did:swarm:test".to_string());
+        let info = SwarmInfo::new_public(creator);
+        assert!(info.is_public);
+        assert!(info.swarm_id.is_public());
+        assert_eq!(info.agent_count, 1);
+    }
+
+    #[test]
+    fn test_swarm_info_private() {
+        let creator = AgentId::new("did:swarm:test".to_string());
+        let info = SwarmInfo::new_private("My Swarm".to_string(), creator, "desc".to_string());
+        assert!(!info.is_public);
+        assert!(!info.swarm_id.is_public());
     }
 }

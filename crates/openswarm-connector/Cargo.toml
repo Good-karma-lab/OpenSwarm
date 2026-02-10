@@ -1,6 +1,6 @@
 [package]
 name = "openswarm-connector"
-description = "JSON-RPC API server and CLI binary for Open Swarm Connector sidecar"
+description = "JSON-RPC API server and CLI binary for ASCP Connector sidecar"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

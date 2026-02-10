@@ -1,6 +1,6 @@
 [package]
 name = "openswarm-network"
-description = "P2P networking layer using libp2p for OpenSwarm"
+description = "P2P networking layer using libp2p for ASCP"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

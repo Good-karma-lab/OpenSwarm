@@ -1,4 +1,4 @@
-//! Open Swarm Connector - JSON-RPC API server and sidecar for AI agents
+//! ASCP Connector - JSON-RPC API server and sidecar for AI agents
 //!
 //! The connector is the interface between an AI agent (e.g., OpenClaw) and
 //! the OpenSwarm network. It initializes and orchestrates all subsystems:

@@ -78,18 +78,43 @@ impl TopicManager {
 
     /// Subscribe to the core set of protocol topics that every node needs.
     ///
-    /// This includes: election/tier1, keepalive, hierarchy.
+    /// This includes: global swarm discovery, plus the default public swarm's
+    /// election, keepalive, and hierarchy topics.
     pub fn subscribe_core_topics(
         &mut self,
         gossipsub: &mut gossipsub::Behaviour,
     ) -> Result<(), NetworkError> {
         use openswarm_protocol::SwarmTopics;
 
+        // Global swarm discovery topic (shared across all swarms).
+        self.subscribe(gossipsub, &SwarmTopics::swarm_discovery())?;
+
+        // Default public swarm core topics.
         self.subscribe(gossipsub, &SwarmTopics::election_tier1())?;
         self.subscribe(gossipsub, &SwarmTopics::keepalive())?;
         self.subscribe(gossipsub, &SwarmTopics::hierarchy())?;
 
         tracing::info!("Subscribed to core protocol topics");
+        Ok(())
+    }
+
+    /// Subscribe to all protocol topics for a specific swarm.
+    ///
+    /// This includes the swarm's election, keepalive, hierarchy, and
+    /// announcement topics.
+    pub fn subscribe_swarm_topics(
+        &mut self,
+        gossipsub: &mut gossipsub::Behaviour,
+        swarm_id: &str,
+    ) -> Result<(), NetworkError> {
+        use openswarm_protocol::SwarmTopics;
+
+        self.subscribe(gossipsub, &SwarmTopics::swarm_announce(swarm_id))?;
+        self.subscribe(gossipsub, &SwarmTopics::election_tier1_for(swarm_id))?;
+        self.subscribe(gossipsub, &SwarmTopics::keepalive_for(swarm_id))?;
+        self.subscribe(gossipsub, &SwarmTopics::hierarchy_for(swarm_id))?;
+
+        tracing::info!(swarm_id, "Subscribed to swarm-specific topics");
         Ok(())
     }
 

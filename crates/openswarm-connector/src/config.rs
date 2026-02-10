@@ -29,6 +29,9 @@ pub struct ConnectorConfig {
     /// Logging configuration.
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// Swarm identity and multi-swarm configuration.
+    #[serde(default)]
+    pub swarm: SwarmConfig,
 }
 
 /// Network layer configuration.
@@ -104,6 +107,26 @@ pub struct LoggingConfig {
     pub json_format: bool,
 }
 
+/// Swarm identity and multi-swarm configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwarmConfig {
+    /// Swarm ID to join on startup. Defaults to "public" (the open swarm).
+    #[serde(default = "default_swarm_id")]
+    pub swarm_id: String,
+    /// Authentication token for private swarms (not required for public swarm).
+    #[serde(default)]
+    pub token: Option<String>,
+    /// Human-readable name for the swarm (used when creating a new swarm).
+    #[serde(default = "default_swarm_name")]
+    pub name: String,
+    /// Whether this node's swarm is public (joinable without token).
+    #[serde(default = "default_true")]
+    pub is_public: bool,
+    /// Interval in seconds between swarm announcements on the DHT.
+    #[serde(default = "default_swarm_announce_interval")]
+    pub announce_interval_secs: u64,
+}
+
 // -- Defaults --
 
 fn default_listen_addr() -> String {
@@ -142,8 +165,29 @@ fn default_agent_name() -> String {
 fn default_log_level() -> String {
     "info".to_string()
 }
+fn default_swarm_id() -> String {
+    openswarm_protocol::DEFAULT_SWARM_ID.to_string()
+}
+fn default_swarm_name() -> String {
+    openswarm_protocol::DEFAULT_SWARM_NAME.to_string()
+}
+fn default_swarm_announce_interval() -> u64 {
+    openswarm_protocol::SWARM_ANNOUNCE_INTERVAL_SECS
+}
 
 // -- Trait impls --
+
+impl Default for SwarmConfig {
+    fn default() -> Self {
+        Self {
+            swarm_id: default_swarm_id(),
+            token: None,
+            name: default_swarm_name(),
+            is_public: true,
+            announce_interval_secs: default_swarm_announce_interval(),
+        }
+    }
+}
 
 impl Default for ConnectorConfig {
     fn default() -> Self {
@@ -153,6 +197,7 @@ impl Default for ConnectorConfig {
             rpc: RpcConfig::default(),
             agent: AgentConfig::default(),
             logging: LoggingConfig::default(),
+            swarm: SwarmConfig::default(),
         }
     }
 }
@@ -267,6 +312,18 @@ impl ConnectorConfig {
         }
         if let Ok(val) = std::env::var("OPENSWARM_BOOTSTRAP_PEERS") {
             self.network.bootstrap_peers = val.split(',').map(|s| s.trim().to_string()).collect();
+        }
+        if let Ok(val) = std::env::var("OPENSWARM_SWARM_ID") {
+            self.swarm.swarm_id = val;
+        }
+        if let Ok(val) = std::env::var("OPENSWARM_SWARM_TOKEN") {
+            self.swarm.token = Some(val);
+        }
+        if let Ok(val) = std::env::var("OPENSWARM_SWARM_NAME") {
+            self.swarm.name = val;
+        }
+        if let Ok(val) = std::env::var("OPENSWARM_SWARM_PUBLIC") {
+            self.swarm.is_public = val == "true" || val == "1";
         }
     }
 

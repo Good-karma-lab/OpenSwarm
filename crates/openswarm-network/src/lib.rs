@@ -1,6 +1,6 @@
-//! OpenSwarm Network - P2P networking layer using libp2p
+//! ASCP Network - P2P networking layer using libp2p
 //!
-//! Provides the foundational networking for the OpenSwarm protocol:
+//! Provides the foundational networking for the Agent Swarm Communication Protocol (ASCP):
 //! - Peer discovery via mDNS and Kademlia DHT
 //! - Message passing via GossipSub pub/sub
 //! - Swarm size estimation from Kademlia routing table density

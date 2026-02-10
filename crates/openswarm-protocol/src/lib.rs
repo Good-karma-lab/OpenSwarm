@@ -1,6 +1,6 @@
-//! OpenSwarm Protocol - Core types and message definitions
+//! ASCP - Core types and message definitions
 //!
-//! Implements the Open Swarm Protocol (OSP) message specification
+//! Implements the Agent Swarm Communication Protocol (ASCP) message specification
 //! using JSON-RPC 2.0 envelope format with Ed25519 signatures.
 
 pub mod identity;

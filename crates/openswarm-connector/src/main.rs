@@ -1,4 +1,4 @@
-//! CLI binary entry point for the Open Swarm Connector sidecar.
+//! CLI binary entry point for the ASCP Connector sidecar.
 //!
 //! Usage:
 //!   openswarm-connector [OPTIONS]
@@ -19,10 +19,10 @@ use openswarm_connector::config::ConnectorConfig;
 use openswarm_connector::connector::OpenSwarmConnector;
 use openswarm_connector::rpc_server::RpcServer;
 
-/// Open Swarm Connector - Sidecar process connecting AI agents to the swarm.
+/// ASCP Connector - Sidecar process connecting AI agents to the swarm.
 #[derive(Parser, Debug)]
 #[command(name = "openswarm-connector")]
-#[command(about = "Open Swarm Connector sidecar for AI agent swarm participation")]
+#[command(about = "ASCP Connector sidecar for AI agent swarm participation")]
 #[command(version)]
 struct Cli {
     /// Path to configuration TOML file.
@@ -49,6 +49,18 @@ struct Cli {
     #[arg(long, value_name = "NAME")]
     agent_name: Option<String>,
 
+    /// Swarm ID to join (default: "public" for the open public swarm).
+    #[arg(long, value_name = "SWARM_ID")]
+    swarm_id: Option<String>,
+
+    /// Authentication token for joining a private swarm.
+    #[arg(long, value_name = "TOKEN")]
+    swarm_token: Option<String>,
+
+    /// Create a new private swarm with this name instead of joining an existing one.
+    #[arg(long, value_name = "NAME")]
+    create_swarm: Option<String>,
+
     /// Launch the terminal UI dashboard for live monitoring.
     #[arg(long)]
     tui: bool,
@@ -74,6 +86,18 @@ async fn main() -> anyhow::Result<()> {
     if let Some(name) = cli.agent_name {
         config.agent.name = name;
     }
+    if let Some(swarm_id) = cli.swarm_id {
+        config.swarm.swarm_id = swarm_id;
+    }
+    if let Some(token) = cli.swarm_token {
+        config.swarm.token = Some(token);
+    }
+    if let Some(name) = cli.create_swarm {
+        // When creating a new swarm, generate a new swarm ID and mark it as private.
+        config.swarm.swarm_id = uuid::Uuid::new_v4().to_string();
+        config.swarm.name = name;
+        config.swarm.is_public = false;
+    }
 
     // Adjust log level based on verbosity.
     let log_level = match cli.verbose {
@@ -96,7 +120,10 @@ async fn main() -> anyhow::Result<()> {
         agent = %config.agent.name,
         listen = %config.network.listen_addr,
         rpc = %config.rpc.bind_addr,
-        "Starting Open Swarm Connector"
+        swarm_id = %config.swarm.swarm_id,
+        swarm_name = %config.swarm.name,
+        swarm_public = config.swarm.is_public,
+        "Starting ASCP Connector"
     );
 
     // Create the connector.

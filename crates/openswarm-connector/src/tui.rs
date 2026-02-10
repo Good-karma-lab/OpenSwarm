@@ -1,4 +1,4 @@
-//! Terminal User Interface (TUI) for monitoring the Open Swarm Connector.
+//! Terminal User Interface (TUI) for monitoring the ASCP Connector.
 //!
 //! Provides a live dashboard showing agent status, network statistics,
 //! active tasks, consensus state, and an event log. Built with ratatui
@@ -46,6 +46,7 @@ pub enum LogCategory {
     Epoch,
     Error,
     System,
+    Swarm,
 }
 
 impl LogCategory {
@@ -59,6 +60,7 @@ impl LogCategory {
             LogCategory::Epoch => "EPOCH",
             LogCategory::Error => "ERR",
             LogCategory::System => "SYS",
+            LogCategory::Swarm => "SWARM",
         }
     }
 
@@ -72,6 +74,7 @@ impl LogCategory {
             LogCategory::Epoch => Color::Magenta,
             LogCategory::Error => Color::Red,
             LogCategory::System => Color::Blue,
+            LogCategory::Swarm => Color::LightCyan,
         }
     }
 }
@@ -111,6 +114,27 @@ impl SwarmTui {
         let state = self.state.read().await;
         let cascade_status = state.cascade.status();
 
+        let current_swarm_id_str = state.current_swarm_id.as_str().to_string();
+        let current_swarm_name = state
+            .known_swarms
+            .get(state.current_swarm_id.as_str())
+            .map(|r| r.name.clone())
+            .unwrap_or_else(|| current_swarm_id_str.clone());
+
+        let known_swarms: Vec<(String, String, bool, u64, bool)> = state
+            .known_swarms
+            .values()
+            .map(|r| {
+                (
+                    r.swarm_id.as_str().to_string(),
+                    r.name.clone(),
+                    r.is_public,
+                    r.agent_count,
+                    r.joined,
+                )
+            })
+            .collect();
+
         StateSnapshot {
             agent_id: state.agent_id.to_string(),
             tier: format_tier(&state.my_tier),
@@ -131,21 +155,26 @@ impl SwarmTui {
             cascade_total: cascade_status.total_subtasks,
             content_items: state.content_store.item_count(),
             event_log: state.event_log.clone(),
+            current_swarm_id: current_swarm_id_str,
+            current_swarm_name,
+            known_swarms,
         }
     }
 
     /// Render the full TUI layout into a frame.
     fn render(&self, frame: &mut Frame, snapshot: &StateSnapshot) {
-        // Top-level: 3 vertical rows.
+        // Top-level: 4 vertical rows.
         // Row 1: Status + Network (fixed height)
-        // Row 2: Tasks + Consensus (flexible)
-        // Row 3: Event Log (flexible, larger)
+        // Row 2: Swarms + Consensus (fixed height)
+        // Row 3: Tasks (fixed height)
+        // Row 4: Event Log (flexible, min 6)
         let outer = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(9),   // Status + Network
-                Constraint::Length(10),  // Tasks + Consensus
-                Constraint::Min(8),     // Event Log
+                Constraint::Length(10),  // Swarms + Consensus
+                Constraint::Length(8),   // Tasks
+                Constraint::Min(6),     // Event Log
             ])
             .split(frame.area());
 
@@ -158,17 +187,20 @@ impl SwarmTui {
         self.render_status(frame, top_row[0], snapshot);
         self.render_network(frame, top_row[1], snapshot);
 
-        // Row 2: Tasks | Consensus
+        // Row 2: Swarms | Consensus
         let mid_row = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(outer[1]);
 
-        self.render_tasks(frame, mid_row[0], snapshot);
+        self.render_swarms(frame, mid_row[0], snapshot);
         self.render_consensus(frame, mid_row[1], snapshot);
 
-        // Row 3: Event Log (full width)
-        self.render_event_log(frame, outer[2], snapshot);
+        // Row 3: Tasks (full width)
+        self.render_tasks(frame, outer[2], snapshot);
+
+        // Row 4: Event Log (full width)
+        self.render_event_log(frame, outer[3], snapshot);
     }
 
     /// Render the Status panel.
@@ -220,6 +252,13 @@ impl SwarmTui {
             Line::from(vec![
                 Span::styled("  Parent: ", Style::default().fg(Color::Gray)),
                 Span::styled(&parent_display, Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Swarm: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    &snap.current_swarm_name,
+                    Style::default().fg(Color::LightCyan),
+                ),
             ]),
             Line::from(vec![
                 Span::styled("  Tasks: ", Style::default().fg(Color::Gray)),
@@ -287,6 +326,77 @@ impl SwarmTui {
 
         let paragraph = Paragraph::new(text).block(block);
         frame.render_widget(paragraph, area);
+    }
+
+    /// Render the Swarms panel showing all known swarms and agent counts.
+    fn render_swarms(&self, frame: &mut Frame, area: Rect, snap: &StateSnapshot) {
+        let block = Block::default()
+            .title(" Swarms ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::LightCyan));
+
+        if snap.known_swarms.is_empty() {
+            let text = Paragraph::new(Line::from(vec![Span::styled(
+                "  Discovering swarms...",
+                Style::default().fg(Color::DarkGray),
+            )]))
+            .block(block);
+            frame.render_widget(text, area);
+            return;
+        }
+
+        let rows: Vec<Row> = snap
+            .known_swarms
+            .iter()
+            .map(|(_, name, is_public, agent_count, joined)| {
+                let type_label = if *is_public { "Public" } else { "Private" };
+                let type_color = if *is_public { Color::Green } else { Color::Yellow };
+                let status_label = if *joined { "Joined" } else { "Available" };
+                let status_color = if *joined { Color::Cyan } else { Color::DarkGray };
+
+                let name_display = if name.len() > 18 {
+                    format!("{}...", &name[..18])
+                } else {
+                    name.clone()
+                };
+
+                Row::new(vec![
+                    ratatui::widgets::Cell::from(Span::styled(
+                        format!("  {}", name_display),
+                        Style::default().fg(Color::White),
+                    )),
+                    ratatui::widgets::Cell::from(Span::styled(
+                        type_label,
+                        Style::default().fg(type_color),
+                    )),
+                    ratatui::widgets::Cell::from(Span::styled(
+                        agent_count.to_string(),
+                        Style::default().fg(Color::White),
+                    )),
+                    ratatui::widgets::Cell::from(Span::styled(
+                        status_label,
+                        Style::default().fg(status_color),
+                    )),
+                ])
+            })
+            .collect();
+
+        let table = Table::new(
+            rows,
+            [
+                Constraint::Percentage(40),
+                Constraint::Percentage(20),
+                Constraint::Percentage(15),
+                Constraint::Percentage(25),
+            ],
+        )
+        .block(block)
+        .header(
+            Row::new(vec!["  Name", "Type", "Agents", "Status"])
+                .style(Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+        );
+
+        frame.render_widget(table, area);
     }
 
     /// Render the Tasks panel.
@@ -574,6 +684,10 @@ struct StateSnapshot {
     cascade_total: usize,
     content_items: usize,
     event_log: Vec<LogEntry>,
+    current_swarm_id: String,
+    current_swarm_name: String,
+    /// (swarm_id, name, is_public, agent_count, joined)
+    known_swarms: Vec<(String, String, bool, u64, bool)>,
 }
 
 /// Format a Tier enum into a human-readable string.

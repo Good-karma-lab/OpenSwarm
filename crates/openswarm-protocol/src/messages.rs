@@ -200,6 +200,47 @@ pub struct SuccessionParams {
     pub branch_agents: Vec<AgentId>,
 }
 
+// ── Swarm Identity Messages ──
+
+/// Announce the existence of a swarm to the network (via DHT + GossipSub).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwarmAnnounceParams {
+    pub swarm_id: SwarmId,
+    pub name: String,
+    pub is_public: bool,
+    pub agent_id: AgentId,
+    pub agent_count: u64,
+    pub description: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+/// Request to join a swarm. For private swarms, includes token.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwarmJoinParams {
+    pub swarm_id: SwarmId,
+    pub agent_id: AgentId,
+    /// Token for private swarm authentication (None for public swarms).
+    pub token: Option<SwarmToken>,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+/// Response to a join request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwarmJoinResponseParams {
+    pub swarm_id: SwarmId,
+    pub agent_id: AgentId,
+    pub accepted: bool,
+    pub reason: Option<String>,
+}
+
+/// Leave a swarm notification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwarmLeaveParams {
+    pub swarm_id: SwarmId,
+    pub agent_id: AgentId,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
+
 /// Enumeration of all protocol methods for pattern matching.
 #[derive(Debug, Clone)]
 pub enum ProtocolMethod {
@@ -216,6 +257,10 @@ pub enum ProtocolMethod {
     VerificationResult,
     KeepAlive,
     Succession,
+    SwarmAnnounce,
+    SwarmJoin,
+    SwarmJoinResponse,
+    SwarmLeave,
 }
 
 impl ProtocolMethod {
@@ -234,6 +279,10 @@ impl ProtocolMethod {
             Self::VerificationResult => "task.verification",
             Self::KeepAlive => "swarm.keepalive",
             Self::Succession => "hierarchy.succession",
+            Self::SwarmAnnounce => "swarm.announce",
+            Self::SwarmJoin => "swarm.join",
+            Self::SwarmJoinResponse => "swarm.join_response",
+            Self::SwarmLeave => "swarm.leave",
         }
     }
 
@@ -252,41 +301,87 @@ impl ProtocolMethod {
             "task.verification" => Some(Self::VerificationResult),
             "swarm.keepalive" => Some(Self::KeepAlive),
             "hierarchy.succession" => Some(Self::Succession),
+            "swarm.announce" => Some(Self::SwarmAnnounce),
+            "swarm.join" => Some(Self::SwarmJoin),
+            "swarm.join_response" => Some(Self::SwarmJoinResponse),
+            "swarm.leave" => Some(Self::SwarmLeave),
             _ => None,
         }
     }
 }
 
 /// GossipSub topics used by the protocol.
+///
+/// All topics are namespaced by swarm_id to isolate communication between
+/// different swarms on the same network. The default public swarm uses
+/// "public" as its swarm_id.
 pub struct SwarmTopics;
 
 impl SwarmTopics {
+    /// Global swarm discovery topic (shared across all swarms).
+    pub fn swarm_discovery() -> String {
+        format!("{}/swarm/discovery", crate::constants::TOPIC_PREFIX)
+    }
+
+    /// Swarm-specific announcement topic.
+    pub fn swarm_announce(swarm_id: &str) -> String {
+        format!("{}/swarm/{}/announce", crate::constants::TOPIC_PREFIX, swarm_id)
+    }
+
     pub fn election_tier1() -> String {
-        format!("{}/election/tier1", crate::constants::TOPIC_PREFIX)
+        Self::election_tier1_for(crate::constants::DEFAULT_SWARM_ID)
+    }
+
+    pub fn election_tier1_for(swarm_id: &str) -> String {
+        format!("{}/s/{}/election/tier1", crate::constants::TOPIC_PREFIX, swarm_id)
     }
 
     pub fn proposals(task_id: &str) -> String {
-        format!("{}/proposals/{}", crate::constants::TOPIC_PREFIX, task_id)
+        Self::proposals_for(crate::constants::DEFAULT_SWARM_ID, task_id)
+    }
+
+    pub fn proposals_for(swarm_id: &str, task_id: &str) -> String {
+        format!("{}/s/{}/proposals/{}", crate::constants::TOPIC_PREFIX, swarm_id, task_id)
     }
 
     pub fn voting(task_id: &str) -> String {
-        format!("{}/voting/{}", crate::constants::TOPIC_PREFIX, task_id)
+        Self::voting_for(crate::constants::DEFAULT_SWARM_ID, task_id)
+    }
+
+    pub fn voting_for(swarm_id: &str, task_id: &str) -> String {
+        format!("{}/s/{}/voting/{}", crate::constants::TOPIC_PREFIX, swarm_id, task_id)
     }
 
     pub fn tasks(tier: u32) -> String {
-        format!("{}/tasks/tier{}", crate::constants::TOPIC_PREFIX, tier)
+        Self::tasks_for(crate::constants::DEFAULT_SWARM_ID, tier)
+    }
+
+    pub fn tasks_for(swarm_id: &str, tier: u32) -> String {
+        format!("{}/s/{}/tasks/tier{}", crate::constants::TOPIC_PREFIX, swarm_id, tier)
     }
 
     pub fn results(task_id: &str) -> String {
-        format!("{}/results/{}", crate::constants::TOPIC_PREFIX, task_id)
+        Self::results_for(crate::constants::DEFAULT_SWARM_ID, task_id)
+    }
+
+    pub fn results_for(swarm_id: &str, task_id: &str) -> String {
+        format!("{}/s/{}/results/{}", crate::constants::TOPIC_PREFIX, swarm_id, task_id)
     }
 
     pub fn keepalive() -> String {
-        format!("{}/keepalive", crate::constants::TOPIC_PREFIX)
+        Self::keepalive_for(crate::constants::DEFAULT_SWARM_ID)
+    }
+
+    pub fn keepalive_for(swarm_id: &str) -> String {
+        format!("{}/s/{}/keepalive", crate::constants::TOPIC_PREFIX, swarm_id)
     }
 
     pub fn hierarchy() -> String {
-        format!("{}/hierarchy", crate::constants::TOPIC_PREFIX)
+        Self::hierarchy_for(crate::constants::DEFAULT_SWARM_ID)
+    }
+
+    pub fn hierarchy_for(swarm_id: &str) -> String {
+        format!("{}/s/{}/hierarchy", crate::constants::TOPIC_PREFIX, swarm_id)
     }
 }
 
@@ -335,5 +430,36 @@ mod tests {
         let resp = SwarmResponse::error(Some("id-2".into()), -32600, "Invalid Request".into());
         assert!(resp.result.is_none());
         assert_eq!(resp.error.as_ref().unwrap().code, -32600);
+    }
+
+    #[test]
+    fn test_swarm_protocol_methods_roundtrip() {
+        let methods = vec![
+            ProtocolMethod::SwarmAnnounce,
+            ProtocolMethod::SwarmJoin,
+            ProtocolMethod::SwarmJoinResponse,
+            ProtocolMethod::SwarmLeave,
+        ];
+        for method in methods {
+            let s = method.as_str();
+            let parsed = ProtocolMethod::from_str(s);
+            assert!(parsed.is_some(), "Failed to parse: {}", s);
+        }
+    }
+
+    #[test]
+    fn test_swarm_namespaced_topics() {
+        let default_keepalive = SwarmTopics::keepalive();
+        let custom_keepalive = SwarmTopics::keepalive_for("my-swarm");
+
+        assert!(default_keepalive.contains("/s/public/"));
+        assert!(custom_keepalive.contains("/s/my-swarm/"));
+        assert_ne!(default_keepalive, custom_keepalive);
+    }
+
+    #[test]
+    fn test_swarm_discovery_topic() {
+        let topic = SwarmTopics::swarm_discovery();
+        assert!(topic.contains("swarm/discovery"));
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "openswarm-protocol"
-description = "Core protocol types and message definitions for the Open Swarm Protocol"
+description = "Core protocol types and message definitions for the Agent Swarm Communication Protocol (ASCP)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,3 +14,4 @@ rand = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
+hex = "0.4"

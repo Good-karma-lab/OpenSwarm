@@ -7,6 +7,9 @@
 //! - `swarm.submit_result()` - Submit a task execution result
 //! - `swarm.receive_task()` - Poll for assigned tasks
 //! - `swarm.get_status()` - Get connector and agent status
+//! - `swarm.list_swarms()` - List all known swarms with their info
+//! - `swarm.create_swarm()` - Create a new private swarm
+//! - `swarm.join_swarm()` - Join an existing swarm
 //!
 //! The server listens on localhost TCP and speaks JSON-RPC 2.0.
 //! Each line received is a JSON-RPC request; each line sent is a response.
@@ -19,7 +22,7 @@ use tokio::sync::RwLock;
 
 use openswarm_protocol::*;
 
-use crate::connector::ConnectorState;
+use crate::connector::{ConnectorState, SwarmRecord};
 
 /// The JSON-RPC 2.0 server.
 pub struct RpcServer {
@@ -133,6 +136,13 @@ async fn process_request(
         }
         "swarm.receive_task" => handle_receive_task(request_id, state).await,
         "swarm.get_status" => handle_get_status(request_id, state).await,
+        "swarm.list_swarms" => handle_list_swarms(request_id, state).await,
+        "swarm.create_swarm" => {
+            handle_create_swarm(request_id, &request.params, state).await
+        }
+        "swarm.join_swarm" => {
+            handle_join_swarm(request_id, &request.params, state).await
+        }
         _ => SwarmResponse::error(
             request_id,
             -32601, // Method not found
@@ -316,6 +326,145 @@ async fn handle_get_status(
             "active_tasks": state.task_set.len(),
             "known_agents": state.agent_set.len(),
             "content_items": state.content_store.item_count(),
+        }),
+    )
+}
+
+/// Handle `swarm.list_swarms` - list all known swarms with their info.
+async fn handle_list_swarms(
+    id: Option<String>,
+    state: &Arc<RwLock<ConnectorState>>,
+) -> SwarmResponse {
+    let state = state.read().await;
+
+    let swarms: Vec<serde_json::Value> = state
+        .known_swarms
+        .values()
+        .map(|record| {
+            serde_json::json!({
+                "swarm_id": record.swarm_id.as_str(),
+                "name": record.name,
+                "is_public": record.is_public,
+                "agent_count": record.agent_count,
+                "joined": record.joined,
+            })
+        })
+        .collect();
+
+    SwarmResponse::success(
+        id,
+        serde_json::json!({
+            "swarms": swarms,
+            "current_swarm": state.current_swarm_id.as_str(),
+        }),
+    )
+}
+
+/// Handle `swarm.create_swarm` - create a new private swarm.
+async fn handle_create_swarm(
+    id: Option<String>,
+    params: &serde_json::Value,
+    state: &Arc<RwLock<ConnectorState>>,
+) -> SwarmResponse {
+    let name = match params.get("name").and_then(|v| v.as_str()) {
+        Some(n) => n.to_string(),
+        None => {
+            return SwarmResponse::error(
+                id,
+                -32602,
+                "Missing 'name' parameter".into(),
+            );
+        }
+    };
+
+    let secret = match params.get("secret").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => {
+            return SwarmResponse::error(
+                id,
+                -32602,
+                "Missing 'secret' parameter".into(),
+            );
+        }
+    };
+
+    let swarm_id = SwarmId::generate();
+    let token = SwarmToken::generate(&swarm_id, &secret);
+
+    let record = SwarmRecord {
+        swarm_id: swarm_id.clone(),
+        name: name.clone(),
+        is_public: false,
+        agent_count: 1,
+        joined: true,
+        last_seen: chrono::Utc::now(),
+    };
+
+    {
+        let mut state = state.write().await;
+        state
+            .known_swarms
+            .insert(swarm_id.as_str().to_string(), record);
+    }
+
+    SwarmResponse::success(
+        id,
+        serde_json::json!({
+            "swarm_id": swarm_id.as_str(),
+            "token": token.as_str(),
+            "name": name,
+        }),
+    )
+}
+
+/// Handle `swarm.join_swarm` - join an existing swarm.
+async fn handle_join_swarm(
+    id: Option<String>,
+    params: &serde_json::Value,
+    state: &Arc<RwLock<ConnectorState>>,
+) -> SwarmResponse {
+    let swarm_id_str = match params.get("swarm_id").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => {
+            return SwarmResponse::error(
+                id,
+                -32602,
+                "Missing 'swarm_id' parameter".into(),
+            );
+        }
+    };
+
+    let token = params.get("token").and_then(|v| v.as_str()).map(String::from);
+
+    let mut state = state.write().await;
+
+    let record = match state.known_swarms.get_mut(&swarm_id_str) {
+        Some(r) => r,
+        None => {
+            return SwarmResponse::error(
+                id,
+                -32001,
+                format!("Unknown swarm: {}", swarm_id_str),
+            );
+        }
+    };
+
+    // Private swarms require a token.
+    if !record.is_public && token.is_none() {
+        return SwarmResponse::error(
+            id,
+            -32602,
+            "Token required for private swarm".into(),
+        );
+    }
+
+    record.joined = true;
+
+    SwarmResponse::success(
+        id,
+        serde_json::json!({
+            "swarm_id": swarm_id_str,
+            "joined": true,
         }),
     )
 }

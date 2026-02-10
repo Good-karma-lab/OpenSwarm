@@ -32,3 +32,18 @@ pub const PROTOCOL_VERSION: &str = "/openswarm/1.0.0";
 
 /// Proof of Work difficulty (number of leading zero bits required).
 pub const POW_DIFFICULTY: u32 = 16;
+
+/// Default public swarm ID. All nodes join this swarm by default.
+pub const DEFAULT_SWARM_ID: &str = "public";
+
+/// Default swarm display name.
+pub const DEFAULT_SWARM_NAME: &str = "ASCP Public";
+
+/// DHT key prefix for swarm registry records.
+pub const SWARM_REGISTRY_PREFIX: &str = "/openswarm/registry/";
+
+/// DHT key prefix for swarm membership records.
+pub const SWARM_MEMBERSHIP_PREFIX: &str = "/openswarm/membership/";
+
+/// Swarm announcement interval in seconds.
+pub const SWARM_ANNOUNCE_INTERVAL_SECS: u64 = 30;

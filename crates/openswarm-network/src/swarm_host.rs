@@ -156,6 +156,14 @@ enum SwarmCommand {
         tier: u32,
         reply: oneshot::Sender<Result<(), NetworkError>>,
     },
+    GetDhtRecord {
+        key: Vec<u8>,
+        reply: oneshot::Sender<Result<(), NetworkError>>,
+    },
+    SubscribeSwarmTopics {
+        swarm_id: String,
+        reply: oneshot::Sender<Result<(), NetworkError>>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -324,6 +332,30 @@ impl SwarmHandle {
         let (tx, rx) = oneshot::channel();
         self.command_tx
             .send(SwarmCommand::SubscribeTierTopics { tier, reply: tx })
+            .await
+            .map_err(|_| NetworkError::ChannelClosed)?;
+        rx.await.map_err(|_| NetworkError::ChannelClosed)?
+    }
+
+    /// Initiate a DHT get_record query. The result will arrive asynchronously
+    /// via Kademlia events. This is a fire-and-forget initiation.
+    pub async fn get_dht_record(&self, key: Vec<u8>) -> Result<(), NetworkError> {
+        let (tx, rx) = oneshot::channel();
+        self.command_tx
+            .send(SwarmCommand::GetDhtRecord { key, reply: tx })
+            .await
+            .map_err(|_| NetworkError::ChannelClosed)?;
+        rx.await.map_err(|_| NetworkError::ChannelClosed)?
+    }
+
+    /// Subscribe to all topics for a specific swarm (election, keepalive, hierarchy, discovery).
+    pub async fn subscribe_swarm_topics(&self, swarm_id: &str) -> Result<(), NetworkError> {
+        let (tx, rx) = oneshot::channel();
+        self.command_tx
+            .send(SwarmCommand::SubscribeSwarmTopics {
+                swarm_id: swarm_id.to_string(),
+                reply: tx,
+            })
             .await
             .map_err(|_| NetworkError::ChannelClosed)?;
         rx.await.map_err(|_| NetworkError::ChannelClosed)?
@@ -669,6 +701,23 @@ impl SwarmHost {
                     .subscribe_tier_topics(
                         &mut self.swarm.behaviour_mut().gossipsub,
                         tier,
+                    );
+                let _ = reply.send(result);
+            }
+            SwarmCommand::GetDhtRecord { key, reply } => {
+                let record_key = libp2p::kad::RecordKey::new(&key);
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .get_record(record_key);
+                let _ = reply.send(Ok(()));
+            }
+            SwarmCommand::SubscribeSwarmTopics { swarm_id, reply } => {
+                let result = self
+                    .topic_manager
+                    .subscribe_swarm_topics(
+                        &mut self.swarm.behaviour_mut().gossipsub,
+                        &swarm_id,
                     );
                 let _ = reply.send(result);
             }

@@ -108,13 +108,38 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Initialize logging.
+    // When TUI mode is enabled, redirect logs to a file to avoid breaking the TUI display.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
 
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(true)
-        .init();
+    if cli.tui {
+        // In TUI mode, write logs to a file instead of stdout/stderr
+        let log_dir = std::env::temp_dir().join("openswarm-logs");
+        std::fs::create_dir_all(&log_dir)?;
+        let log_file = log_dir.join(format!("{}.log", config.agent.name));
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_file)?;
+
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_target(true)
+            .with_ansi(false)  // Disable colors in log file
+            .with_writer(std::sync::Mutex::new(file))
+            .init();
+
+        // Print log file location before starting TUI
+        eprintln!("📝 Logs are being written to: {}", log_file.display());
+        eprintln!("   You can monitor logs with: tail -f {}", log_file.display());
+        eprintln!();
+    } else {
+        // In non-TUI mode, use normal stdout/stderr logging
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_target(true)
+            .init();
+    }
 
     tracing::info!(
         agent = %config.agent.name,

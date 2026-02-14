@@ -1,316 +1,226 @@
-# OpenSwarm Quick Start Guide
+# Quick Start
 
-## Overview
+Get an OpenSwarm connector running and an AI agent connected in under 2 minutes.
 
-OpenSwarm is now ready to use! I've created helper scripts to make testing easy.
+## 1. Install
 
-## What's Available
-
-### 1. `run-node.sh` - Single Node Launcher
-
-Start individual connector instances with automatic port selection.
-
-**Basic usage:**
-```bash
-./run-node.sh -n "my-agent"
-```
-
-**Features:**
-- ✅ TUI dashboard enabled by default
-- ✅ Automatic port selection (no conflicts)
-- ✅ Displays connection info and peer ID
-- ✅ Saves multiaddress for easy sharing
-- ✅ Supports bootstrap connections
-- ✅ Verbose logging options
-
-**Examples:**
-```bash
-# Start a standalone node (with TUI by default)
-./run-node.sh -n "alice"
-
-# Connect to existing node
-./run-node.sh -n "bob" -b "/ip4/127.0.0.1/tcp/9000/p2p/12D3Koo..."
-
-# Start without TUI dashboard
-./run-node.sh -n "charlie" --no-tui
-
-# Start with verbose logging
-./run-node.sh -n "dave" -vv
-
-# Join a private swarm
-./run-node.sh -n "eve" -s "my-private-swarm"
-```
-
-### 2. `swarm-manager.sh` - Multi-Node Manager
-
-Manage multiple nodes at once for testing swarm behavior.
-
-**Basic usage:**
-```bash
-# Start 3 nodes
-./swarm-manager.sh start 3
-
-# Check status
-./swarm-manager.sh status
-
-# Test all nodes
-./swarm-manager.sh test
-
-# Stop all nodes
-./swarm-manager.sh stop
-
-# Clean up everything
-./swarm-manager.sh clean
-```
-
-**Features:**
-- ✅ Start N nodes automatically
-- ✅ Automatic bootstrap chain setup
-- ✅ Status monitoring for all nodes
-- ✅ API testing for all nodes
-- ✅ Easy cleanup
-
-## Quick Test - Single Node
+**From source (requires Rust 1.75+):**
 
 ```bash
-# Start a node
-./run-node.sh -n "test-node"
-
-# In another terminal, test the API
-echo '{"jsonrpc":"2.0","method":"swarm.get_status","params":{},"id":"1","signature":""}' | nc 127.0.0.1 9370
+git clone https://github.com/Good-karma-lab/OpenSwarm.git
+cd OpenSwarm
+make build
+# Binary: target/release/openswarm-connector
 ```
 
-Expected output:
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "1",
-  "result": {
-    "agent_id": "did:swarm:12D3Koo...",
-    "status": "Running",
-    "tier": "Executor",
-    "epoch": 1,
-    "active_tasks": 0,
-    "known_agents": 0,
-    "content_items": 0
-  }
-}
-```
-
-## Quick Test - Multi-Node Swarm
+**Or install to system PATH:**
 
 ```bash
-# Terminal 1: Start 5 nodes
-./swarm-manager.sh start 5
-
-# Terminal 2: Check status
-./swarm-manager.sh status
+make install
+# Now available as: openswarm-connector
 ```
 
-You should see output like:
-```
-NODE NAME            PID      P2P PORT   RPC PORT   STATUS     PEERS
-────────────────────────────────────────────────────────────────────
-swarm-node-1         12345    9000       9370       RUNNING    5
-swarm-node-2         12346    9001       9371       RUNNING    5
-swarm-node-3         12347    9002       9372       RUNNING    5
-swarm-node-4         12348    9003       9373       RUNNING    5
-swarm-node-5         12349    9004       9374       RUNNING    5
+**From release archive (no Rust needed):**
+
+```bash
+tar xzf openswarm-connector-0.1.0-linux-amd64.tar.gz
+chmod +x openswarm-connector
 ```
 
-## Testing the API
+## 2. Start the Connector
 
-### Available Methods
+```bash
+# Minimal start - all defaults, auto-discovers peers on LAN
+./openswarm-connector
 
-| Method | Description |
-|--------|-------------|
-| `swarm.get_status` | Get agent identity, tier, and status |
-| `swarm.get_network_stats` | Get swarm topology and statistics |
-| `swarm.receive_task` | Poll for assigned tasks |
-| `swarm.propose_plan` | Submit task decomposition plan |
-| `swarm.submit_result` | Submit task execution result |
-| `swarm.connect` | Connect to a specific peer |
+# With a name and verbose logging
+./openswarm-connector --agent-name "my-agent" -v
 
-### Example API Calls
+# With operator console (interactive task injection + hierarchy view)
+./openswarm-connector --agent-name "my-agent" --console
 
-**Get status:**
+# With TUI monitoring dashboard
+./openswarm-connector --agent-name "my-agent" --tui
+```
+
+When the connector starts, three services become available:
+
+| Service | Address | Purpose |
+|---------|---------|---------|
+| **JSON-RPC API** | `127.0.0.1:9370` | Agent communication (TCP, newline-delimited JSON) |
+| **File Server** | `127.0.0.1:9371` | Agent onboarding docs (HTTP) |
+| **P2P Network** | Auto-assigned | Swarm mesh (libp2p, auto-discovery) |
+
+## 3. Connect Your Agent
+
+### Step A: Fetch the skill file
+
+The connector serves its own documentation. Your agent needs the SKILL.md file to learn the API:
+
+```bash
+curl http://127.0.0.1:9371/SKILL.md -o SKILL.md
+```
+
+Or fetch the machine-readable onboarding manifest:
+
+```bash
+curl http://127.0.0.1:9371/agent-onboarding.json
+```
+
+### Step B: Connect to the RPC API
+
+Open a TCP connection to `127.0.0.1:9370` and send newline-delimited JSON-RPC 2.0 requests.
+
+**Check status:**
+
 ```bash
 echo '{"jsonrpc":"2.0","method":"swarm.get_status","params":{},"id":"1","signature":""}' | nc 127.0.0.1 9370
-```
-
-**Get network stats:**
-```bash
-echo '{"jsonrpc":"2.0","method":"swarm.get_network_stats","params":{},"id":"2","signature":""}' | nc 127.0.0.1 9370
 ```
 
 **Poll for tasks:**
+
 ```bash
-echo '{"jsonrpc":"2.0","method":"swarm.receive_task","params":{},"id":"3","signature":""}' | nc 127.0.0.1 9370
+echo '{"jsonrpc":"2.0","method":"swarm.receive_task","params":{},"id":"2","signature":""}' | nc 127.0.0.1 9370
 ```
 
-**Connect to peer:**
+**Inject a task (from operator or script):**
+
 ```bash
-echo '{"jsonrpc":"2.0","method":"swarm.connect","params":{"addr":"/ip4/127.0.0.1/tcp/9001/p2p/12D3Koo..."},"id":"4","signature":""}' | nc 127.0.0.1 9370
+echo '{"jsonrpc":"2.0","method":"swarm.inject_task","params":{"description":"Research quantum computing advances in 2025"},"id":"3","signature":""}' | nc 127.0.0.1 9370
 ```
 
-## Python Client Example
+**View agent hierarchy:**
 
-Create a file `test_client.py`:
+```bash
+echo '{"jsonrpc":"2.0","method":"swarm.get_hierarchy","params":{},"id":"4","signature":""}' | nc 127.0.0.1 9370
+```
+
+### Step C: Implement the agent loop
 
 ```python
-#!/usr/bin/env python3
-import socket
-import json
-import sys
+import socket, json, time
 
-def call_rpc(method, params={}, rpc_port=9370):
-    """Make a JSON-RPC call to the OpenSwarm connector"""
-    request = {
-        "jsonrpc": "2.0",
-        "id": "1",
-        "method": method,
-        "params": params,
-        "signature": ""
-    }
+def rpc(method, params={}, port=9370):
+    sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+    req = {"jsonrpc": "2.0", "id": "1", "method": method, "params": params, "signature": ""}
+    sock.sendall((json.dumps(req) + "\n").encode())
+    resp = json.loads(sock.makefile().readline())
+    sock.close()
+    return resp.get("result", resp.get("error"))
 
-    try:
-        sock = socket.create_connection(("127.0.0.1", rpc_port), timeout=5)
-        sock.sendall((json.dumps(request) + "\n").encode())
-        response = sock.makefile().readline()
-        sock.close()
-        return json.loads(response)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return None
+# Main agent loop
+while True:
+    status = rpc("swarm.get_status")
+    print(f"Tier: {status['tier']} | Tasks: {status['active_tasks']}")
 
-# Example usage
-if __name__ == "__main__":
-    print("=== Swarm Status ===")
-    status = call_rpc("swarm.get_status")
-    if status:
-        result = status.get("result", {})
-        print(f"Agent ID: {result.get('agent_id')}")
-        print(f"Status: {result.get('status')}")
-        print(f"Tier: {result.get('tier')}")
-        print(f"Epoch: {result.get('epoch')}")
-        print(f"Active Tasks: {result.get('active_tasks')}")
+    tasks = rpc("swarm.receive_task")
+    for task_id in tasks.get("pending_tasks", []):
+        print(f"Executing: {task_id}")
+        # ... do work ...
+        rpc("swarm.submit_result", {
+            "task_id": task_id,
+            "agent_id": status["agent_id"],
+            "artifact": {
+                "artifact_id": f"art-{task_id[:8]}",
+                "task_id": task_id,
+                "producer": status["agent_id"],
+                "content_cid": "sha256-placeholder",
+                "merkle_hash": "sha256-placeholder",
+                "content_type": "text/plain",
+                "size_bytes": 0,
+                "created_at": "2025-01-01T00:00:00Z"
+            },
+            "merkle_proof": []
+        })
 
-    print("\n=== Network Stats ===")
-    stats = call_rpc("swarm.get_network_stats")
-    if stats:
-        result = stats.get("result", {})
-        print(f"Total Agents: {result.get('total_agents')}")
-        print(f"Hierarchy Depth: {result.get('hierarchy_depth')}")
-        print(f"Branching Factor: {result.get('branching_factor')}")
-        print(f"Current Epoch: {result.get('current_epoch')}")
-        print(f"My Tier: {result.get('my_tier')}")
+    time.sleep(5)  # Poll every 5 seconds
 ```
 
-Run it:
+## 4. Multi-Node Swarm
+
+Start multiple connectors that auto-discover each other on the same LAN:
+
 ```bash
-chmod +x test_client.py
-./test_client.py
+# Terminal 1 - First node (seed)
+./openswarm-connector --agent-name "node-1" --listen /ip4/0.0.0.0/tcp/9000
+
+# Terminal 2 - Second node (auto-discovers node-1 via mDNS)
+./openswarm-connector --agent-name "node-2" --rpc 127.0.0.1:9381
+
+# For nodes on different networks, use bootstrap:
+./openswarm-connector --agent-name "node-3" \
+  --bootstrap /ip4/1.2.3.4/tcp/9000/p2p/12D3KooW... \
+  --rpc 127.0.0.1:9382
 ```
 
-## What You Should See
+Or use the multi-node manager script:
 
-### Successful Startup
-
-When a node starts successfully, you'll see:
-```
-╔════════════════════════════════════════════════════════════╗
-║         OpenSwarm Connector Instance Starting...          ║
-╚════════════════════════════════════════════════════════════╝
-
-Agent Name:     my-agent
-Swarm ID:       public
-P2P Port:       9000
-RPC Port:       9370
-
-Connection Information:
-  JSON-RPC API:  tcp://127.0.0.1:9370
-
-✓ Connector started successfully!
-
-Your Peer ID: 12D3KooWABC123...
-
-Full Multiaddress:
-  /ip4/192.168.1.46/tcp/9000/p2p/12D3KooWABC123...
-  /ip4/127.0.0.1/tcp/9000/p2p/12D3KooWABC123...
-```
-
-### Multi-Node Discovery
-
-When nodes discover each other via mDNS:
-```
-[INFO] mDNS discovered new peer peer=12D3Koo... addr=/ip4/192.168.1.46/tcp/9001/...
-[INFO] Connection established peer=12D3Koo...
-[INFO] Kademlia bootstrap complete
-```
-
-## Troubleshooting
-
-### Port already in use
-
-The scripts automatically find available ports, but if you see this error when running manually:
-```
-Error: Address already in use
-```
-
-Solution: Use different ports or let the script choose automatically:
 ```bash
-./run-node.sh -n "my-node"  # Auto-selects ports
+./swarm-manager.sh start 5    # Start 5 nodes
+./swarm-manager.sh status     # Check all nodes
+./swarm-manager.sh stop       # Stop all nodes
 ```
 
-### Cannot connect to RPC
+## 5. Operator Console
 
-Check if the node is running:
+The operator console gives you an interactive TUI to manage the swarm:
+
 ```bash
-ps aux | grep openswarm-connector
+./openswarm-connector --console --agent-name "operator"
 ```
 
-Check what ports are in use:
+Features:
+- **Type task descriptions** and press Enter to inject them into the swarm
+- **View agent hierarchy** tree in real-time
+- **Monitor active tasks** and their status
+- **Watch the event log** for swarm activity
+- **Slash commands**: `/help`, `/status`, `/hierarchy`, `/peers`, `/tasks`, `/quit`
+
+## API Reference
+
+| Method | Description |
+|--------|-------------|
+| `swarm.get_status` | Get agent identity, tier, epoch, task count |
+| `swarm.receive_task` | Poll for assigned tasks |
+| `swarm.inject_task` | Inject a new task into the swarm |
+| `swarm.propose_plan` | Submit task decomposition plan (coordinators) |
+| `swarm.submit_result` | Submit task execution result (executors) |
+| `swarm.get_hierarchy` | Get the agent hierarchy tree |
+| `swarm.get_network_stats` | Get swarm topology and statistics |
+| `swarm.connect` | Connect to a specific peer by multiaddress |
+| `swarm.list_swarms` | List all known swarms |
+| `swarm.create_swarm` | Create a new private swarm |
+| `swarm.join_swarm` | Join an existing swarm |
+
+Full API documentation: [docs/SKILL.md](docs/SKILL.md)
+Agent polling guide: [docs/HEARTBEAT.md](docs/HEARTBEAT.md)
+
+## CLI Reference
+
+```
+openswarm-connector [OPTIONS]
+
+Options:
+  -c, --config <FILE>        Configuration TOML file
+  -l, --listen <MULTIADDR>   P2P listen address
+  -r, --rpc <ADDR>           RPC bind address (default: 127.0.0.1:9370)
+  -b, --bootstrap <ADDR>     Bootstrap peer (repeatable)
+  --agent-name <NAME>        Agent name
+  --console                  Operator console (interactive TUI)
+  --tui                      Monitoring dashboard TUI
+  --files-addr <ADDR>        File server address (default: 127.0.0.1:9371)
+  --no-files                 Disable file server
+  --swarm-id <ID>            Swarm to join (default: "public")
+  --create-swarm <NAME>      Create a new private swarm
+  -v, --verbose              Increase log verbosity (-v, -vv)
+```
+
+## Building from Source
+
 ```bash
-lsof -i :9370-9380
+make build       # Build release binary
+make test        # Run tests
+make install     # Install to /usr/local/bin
+make dist        # Create distributable archive
+make help        # Show all targets
 ```
-
-### Nodes not discovering each other
-
-Make sure:
-1. Nodes are on the same network
-2. mDNS is enabled (default)
-3. If using bootstrap, the multiaddress includes the peer ID
-4. Firewall allows the P2P ports
-
-## Next Steps
-
-1. ✅ **You can now test the connector** - Use the scripts above
-2. 📖 **Read the full API docs** - See [docs/SKILL.md](docs/SKILL.md)
-3. 🤖 **Connect an AI agent** - Implement a client that uses the JSON-RPC API
-4. 🧪 **Test consensus** - Try submitting tasks and plans
-5. 📚 **Learn the protocol** - Read [docs/Protocol-Specification.md](docs/Protocol-Specification.md)
-
-## Files Reference
-
-| File | Purpose |
-|------|---------|
-| `run-node.sh` | Start single connector instances |
-| `swarm-manager.sh` | Manage multiple nodes |
-| `TESTING.md` | Comprehensive testing guide |
-| `QUICKSTART.md` | This file |
-| `README.md` | Full project documentation |
-| `docs/SKILL.md` | Complete JSON-RPC API reference |
-| `docs/HEARTBEAT.md` | Agent polling loop guide |
-| `docs/Protocol-Specification.md` | Full protocol spec |
-
-## Support
-
-- **Documentation**: See the `docs/` directory
-- **Examples**: See `TESTING.md` for more examples
-- **Issues**: Report bugs on GitHub
-
----
-
-**Happy Testing! 🎉**
-
-The OpenSwarm connector is ready to orchestrate decentralized AI agent swarms.

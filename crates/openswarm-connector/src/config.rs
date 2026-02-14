@@ -32,6 +32,20 @@ pub struct ConnectorConfig {
     /// Swarm identity and multi-swarm configuration.
     #[serde(default)]
     pub swarm: SwarmConfig,
+    /// HTTP file server configuration for agent onboarding.
+    #[serde(default)]
+    pub file_server: FileServerConfig,
+}
+
+/// HTTP file server configuration for serving agent onboarding docs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileServerConfig {
+    /// Whether the file server is enabled.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Address to bind the HTTP file server to.
+    #[serde(default = "default_file_server_addr")]
+    pub bind_addr: String,
 }
 
 /// Network layer configuration.
@@ -174,6 +188,9 @@ fn default_swarm_name() -> String {
 fn default_swarm_announce_interval() -> u64 {
     openswarm_protocol::SWARM_ANNOUNCE_INTERVAL_SECS
 }
+fn default_file_server_addr() -> String {
+    "127.0.0.1:9371".to_string()
+}
 
 // -- Trait impls --
 
@@ -189,6 +206,15 @@ impl Default for SwarmConfig {
     }
 }
 
+impl Default for FileServerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            bind_addr: default_file_server_addr(),
+        }
+    }
+}
+
 impl Default for ConnectorConfig {
     fn default() -> Self {
         Self {
@@ -198,6 +224,7 @@ impl Default for ConnectorConfig {
             agent: AgentConfig::default(),
             logging: LoggingConfig::default(),
             swarm: SwarmConfig::default(),
+            file_server: FileServerConfig::default(),
         }
     }
 }
@@ -324,6 +351,12 @@ impl ConnectorConfig {
         }
         if let Ok(val) = std::env::var("OPENSWARM_SWARM_PUBLIC") {
             self.swarm.is_public = val == "true" || val == "1";
+        }
+        if let Ok(val) = std::env::var("OPENSWARM_FILE_SERVER_ADDR") {
+            self.file_server.bind_addr = val;
+        }
+        if let Ok(val) = std::env::var("OPENSWARM_FILE_SERVER_ENABLED") {
+            self.file_server.enabled = val == "true" || val == "1";
         }
     }
 

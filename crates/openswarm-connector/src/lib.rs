@@ -13,9 +13,12 @@
 pub mod agent_bridge;
 pub mod config;
 pub mod connector;
+pub mod file_server;
+pub mod operator_console;
 pub mod rpc_server;
 pub mod tui;
 
 pub use config::ConnectorConfig;
 pub use connector::OpenSwarmConnector;
+pub use file_server::FileServer;
 pub use rpc_server::RpcServer;

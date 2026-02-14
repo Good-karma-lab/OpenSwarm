@@ -10,6 +10,8 @@
 //!   -b, --bootstrap <ADDR> Bootstrap peer multiaddress (repeatable)
 //!   -v, --verbose          Increase logging verbosity
 //!   --agent-name <NAME>    Set the agent name
+//!   --tui                  Launch the TUI monitoring dashboard
+//!   --console              Launch the operator console (interactive task injection + hierarchy)
 
 use std::path::PathBuf;
 
@@ -17,6 +19,7 @@ use clap::Parser;
 
 use openswarm_connector::config::ConnectorConfig;
 use openswarm_connector::connector::OpenSwarmConnector;
+use openswarm_connector::file_server::FileServer;
 use openswarm_connector::rpc_server::RpcServer;
 
 /// ASCP Connector - Sidecar process connecting AI agents to the swarm.
@@ -64,6 +67,18 @@ struct Cli {
     /// Launch the terminal UI dashboard for live monitoring.
     #[arg(long)]
     tui: bool,
+
+    /// Launch the operator console for interactive task injection and hierarchy view.
+    #[arg(long)]
+    console: bool,
+
+    /// HTTP file server bind address for serving agent onboarding docs.
+    #[arg(long, value_name = "ADDR")]
+    files_addr: Option<String>,
+
+    /// Disable the HTTP file server.
+    #[arg(long)]
+    no_files: bool,
 }
 
 #[tokio::main]
@@ -98,6 +113,12 @@ async fn main() -> anyhow::Result<()> {
         config.swarm.name = name;
         config.swarm.is_public = false;
     }
+    if let Some(addr) = cli.files_addr {
+        config.file_server.bind_addr = addr;
+    }
+    if cli.no_files {
+        config.file_server.enabled = false;
+    }
 
     // Adjust log level based on verbosity.
     let log_level = match cli.verbose {
@@ -108,12 +129,12 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Initialize logging.
-    // When TUI mode is enabled, redirect logs to a file to avoid breaking the TUI display.
+    // When TUI/console mode is enabled, redirect logs to a file.
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
 
-    if cli.tui {
-        // In TUI mode, write logs to a file instead of stdout/stderr
+    if cli.tui || cli.console {
+        // In TUI/console mode, write logs to a file instead of stdout/stderr.
         let log_dir = std::env::temp_dir().join("openswarm-logs");
         std::fs::create_dir_all(&log_dir)?;
         let log_file = log_dir.join(format!("{}.log", config.agent.name));
@@ -125,16 +146,14 @@ async fn main() -> anyhow::Result<()> {
         tracing_subscriber::fmt()
             .with_env_filter(filter)
             .with_target(true)
-            .with_ansi(false)  // Disable colors in log file
+            .with_ansi(false)
             .with_writer(std::sync::Mutex::new(file))
             .init();
 
-        // Print log file location before starting TUI
-        eprintln!("📝 Logs are being written to: {}", log_file.display());
-        eprintln!("   You can monitor logs with: tail -f {}", log_file.display());
+        eprintln!("Logs: {}", log_file.display());
+        eprintln!("  tail -f {}", log_file.display());
         eprintln!();
     } else {
-        // In non-TUI mode, use normal stdout/stderr logging
         tracing_subscriber::fmt()
             .with_env_filter(filter)
             .with_target(true)
@@ -148,6 +167,8 @@ async fn main() -> anyhow::Result<()> {
         swarm_id = %config.swarm.swarm_id,
         swarm_name = %config.swarm.name,
         swarm_public = config.swarm.is_public,
+        files_server = %config.file_server.bind_addr,
+        files_enabled = config.file_server.enabled,
         "Starting ASCP Connector"
     );
 
@@ -172,22 +193,60 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    if cli.tui {
-        // Spawn the TUI in a separate task (only needs Arc<RwLock<ConnectorState>>).
+    // Start the HTTP file server if enabled.
+    if config.file_server.enabled {
+        let file_server = FileServer::new(config.file_server.bind_addr.clone());
+        tokio::spawn(async move {
+            if let Err(e) = file_server.run().await {
+                tracing::error!(error = %e, "HTTP file server error");
+            }
+        });
+    }
+
+    if cli.console {
+        // Launch the operator console.
+        let console_state = state.clone();
+        let console_handle = tokio::spawn(async move {
+            if let Err(e) =
+                openswarm_connector::operator_console::run_operator_console(console_state).await
+            {
+                let err_msg = e.to_string();
+                if err_msg.contains("TTY") || err_msg.contains("terminal") {
+                    tracing::warn!(
+                        "Console mode disabled: {}. Continuing in headless mode.",
+                        err_msg
+                    );
+                } else {
+                    tracing::error!(error = %e, "Operator console error");
+                }
+            }
+        });
+
+        tokio::select! {
+            result = connector.run() => {
+                result?;
+            }
+            _ = console_handle => {
+                // Console exited, shutting down.
+            }
+        }
+    } else if cli.tui {
+        // Spawn the TUI in a separate task.
         let tui_state = state.clone();
         let tui_handle = tokio::spawn(async move {
             if let Err(e) = openswarm_connector::tui::run_tui(tui_state).await {
                 let err_msg = e.to_string();
                 if err_msg.contains("TTY") || err_msg.contains("terminal") {
-                    tracing::warn!("TUI mode disabled: {}. Continuing in non-TUI mode.", err_msg);
+                    tracing::warn!(
+                        "TUI mode disabled: {}. Continuing in non-TUI mode.",
+                        err_msg
+                    );
                 } else {
                     tracing::error!(error = %e, "TUI error");
                 }
             }
         });
 
-        // Run the connector on the main thread, but race it against the TUI.
-        // When the TUI exits (user pressed 'q'), we stop the connector too.
         tokio::select! {
             result = connector.run() => {
                 result?;

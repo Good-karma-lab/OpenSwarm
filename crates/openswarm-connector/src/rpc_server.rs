@@ -143,6 +143,10 @@ async fn process_request(
         "swarm.join_swarm" => {
             handle_join_swarm(request_id, &request.params, state).await
         }
+        "swarm.inject_task" => {
+            handle_inject_task(request_id, &request.params, state, network_handle).await
+        }
+        "swarm.get_hierarchy" => handle_get_hierarchy(request_id, state).await,
         _ => SwarmResponse::error(
             request_id,
             -32601, // Method not found
@@ -465,6 +469,114 @@ async fn handle_join_swarm(
         serde_json::json!({
             "swarm_id": swarm_id_str,
             "joined": true,
+        }),
+    )
+}
+
+/// Handle `swarm.inject_task` - inject a task into the swarm from the operator/external source.
+async fn handle_inject_task(
+    id: Option<String>,
+    params: &serde_json::Value,
+    state: &Arc<RwLock<ConnectorState>>,
+    network_handle: &openswarm_network::SwarmHandle,
+) -> SwarmResponse {
+    let description = match params.get("description").and_then(|v| v.as_str()) {
+        Some(d) => d.to_string(),
+        None => {
+            return SwarmResponse::error(
+                id,
+                -32602,
+                "Missing 'description' parameter".into(),
+            );
+        }
+    };
+
+    let mut state = state.write().await;
+    let epoch = state.epoch_manager.current_epoch();
+    let task = openswarm_protocol::Task::new(description.clone(), 1, epoch);
+    let task_id = task.task_id.clone();
+
+    // Add task to the local task set (CRDT).
+    state.task_set.add(task_id.clone());
+
+    // Log the injection.
+    state.push_log(
+        crate::tui::LogCategory::Task,
+        format!("Task injected via RPC: {} ({})", task_id, description),
+    );
+
+    // Publish task injection to the swarm network.
+    let inject_params = TaskInjectionParams {
+        task: task.clone(),
+        originator: state.agent_id.clone(),
+    };
+
+    let msg = SwarmMessage::new(
+        ProtocolMethod::TaskInjection.as_str(),
+        serde_json::to_value(&inject_params).unwrap_or_default(),
+        String::new(),
+    );
+
+    let swarm_id = state.current_swarm_id.as_str().to_string();
+    drop(state);
+
+    if let Ok(data) = serde_json::to_vec(&msg) {
+        let topic = SwarmTopics::tasks_for(&swarm_id, 1);
+        if let Err(e) = network_handle.publish(&topic, data).await {
+            tracing::debug!(error = %e, "Failed to publish task injection");
+        }
+    }
+
+    SwarmResponse::success(
+        id,
+        serde_json::json!({
+            "task_id": task_id,
+            "description": description,
+            "epoch": epoch,
+            "injected": true,
+        }),
+    )
+}
+
+/// Handle `swarm.get_hierarchy` - return the agent hierarchy tree.
+async fn handle_get_hierarchy(
+    id: Option<String>,
+    state: &Arc<RwLock<ConnectorState>>,
+) -> SwarmResponse {
+    let state = state.read().await;
+
+    let self_agent = serde_json::json!({
+        "agent_id": state.agent_id.to_string(),
+        "tier": format!("{:?}", state.my_tier),
+        "parent_id": state.parent_id.as_ref().map(|p| p.to_string()),
+        "task_count": state.task_set.len(),
+        "is_self": true,
+    });
+
+    let peers: Vec<serde_json::Value> = state
+        .agent_set
+        .elements()
+        .iter()
+        .map(|peer_id| {
+            serde_json::json!({
+                "agent_id": peer_id,
+                "tier": "Peer",
+                "parent_id": null,
+                "task_count": 0,
+                "is_self": false,
+            })
+        })
+        .collect();
+
+    SwarmResponse::success(
+        id,
+        serde_json::json!({
+            "self": self_agent,
+            "peers": peers,
+            "total_agents": state.network_stats.total_agents,
+            "hierarchy_depth": state.network_stats.hierarchy_depth,
+            "branching_factor": state.network_stats.branching_factor,
+            "epoch": state.epoch_manager.current_epoch(),
         }),
     )
 }

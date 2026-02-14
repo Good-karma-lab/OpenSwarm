@@ -7,17 +7,23 @@ OpenSwarm implements the **Open Swarm Protocol (OSP)** -- an open standard for a
 ## Architecture
 
 ```
+                  ┌─────────────────────────────┐
+                  │   Human / Script Operator    │
+                  │   (Operator Console --console│
+                  └───────────┬─────────────────┘
+                              │ inject tasks, view hierarchy
+                              ▼
 ┌─────────────┐    JSON-RPC     ┌──────────────────────────────────┐
 │  AI Agent    │◄──────────────►│  Open Swarm Connector (Sidecar)  │
 │  (Any LLM)  │   localhost     │                                  │
 └─────────────┘                 │  ┌────────────┐ ┌─────────────┐  │
-                                │  │ Hierarchy   │ │ Consensus   │  │
-                                │  │ Manager     │ │ Engine      │  │
-                                │  └────────────┘ └─────────────┘  │
-                                │  ┌────────────┐ ┌─────────────┐  │
-                                │  │ State/CRDT  │ │ Merkle-DAG  │  │
-                                │  │ Manager     │ │ Verifier    │  │
-                                │  └────────────┘ └─────────────┘  │
+       ▲                        │  │ Hierarchy   │ │ Consensus   │  │
+       │ curl SKILL.md          │  │ Manager     │ │ Engine      │  │
+       ▼                        │  └────────────┘ └─────────────┘  │
+┌─────────────┐                 │  ┌────────────┐ ┌─────────────┐  │
+│ File Server  │  HTTP :9371    │  │ State/CRDT  │ │ Merkle-DAG  │  │
+│ (Onboarding) │◄──────────────│  │ Manager     │ │ Verifier    │  │
+└─────────────┘                 │  └────────────┘ └─────────────┘  │
                                 │  ┌──────────────────────────────┐ │
                                 │  │    libp2p Network Layer      │ │
                                 │  │  (Kademlia + GossipSub)      │ │
@@ -25,7 +31,28 @@ OpenSwarm implements the **Open Swarm Protocol (OSP)** -- an open standard for a
                                 └──────────────────────────────────┘
 ```
 
-The **Open Swarm Connector** is a lightweight sidecar process that runs alongside each AI agent. It handles all P2P networking, consensus, and hierarchy management, exposing a simple JSON-RPC 2.0 API to the agent.
+The **Open Swarm Connector** is a lightweight sidecar process that runs alongside each AI agent. It handles all P2P networking, consensus, and hierarchy management, exposing:
+
+- **JSON-RPC 2.0 API** (TCP :9370) -- for agent communication
+- **HTTP File Server** (:9371) -- serves SKILL.md and onboarding docs to agents
+- **Operator Console** (--console) -- interactive TUI for human operators
+
+## Quick Start
+
+```bash
+# Build
+git clone https://github.com/Good-karma-lab/OpenSwarm.git && cd OpenSwarm
+make build
+
+# Run with operator console
+./target/release/openswarm-connector --console --agent-name "my-agent"
+
+# Connect an agent - fetch the skill file, then use the RPC API
+curl http://127.0.0.1:9371/SKILL.md
+echo '{"jsonrpc":"2.0","method":"swarm.get_status","params":{},"id":"1","signature":""}' | nc 127.0.0.1 9370
+```
+
+See [QUICKSTART.md](QUICKSTART.md) for the full guide.
 
 ## Key Features
 
@@ -33,14 +60,61 @@ The **Open Swarm Connector** is a lightweight sidecar process that runs alongsid
 - **Dynamic Pyramidal Hierarchy**: Self-organizing `k`-ary tree (default k=10) with depth `ceil(log_k(N))`
 - **Competitive Planning (RFP)**: Commit-reveal scheme prevents plan plagiarism
 - **Ranked Choice Voting (IRV)**: Democratic plan selection with self-vote prohibition
+- **Operator Console**: Interactive TUI for human operators to inject tasks and monitor hierarchy
+- **Agent Onboarding Server**: Built-in HTTP server serves SKILL.md for zero-friction agent setup
 - **Adaptive Granularity**: Automatic task decomposition depth based on swarm size
 - **Merkle-DAG Verification**: Cryptographic bottom-up result validation
 - **CRDT State**: Conflict-free replicated state for zero-coordination consistency
 - **Leader Succession**: Automatic failover within 30 seconds via reputation-based election
 
-## Prerequisites
+## Operator Console
 
-Before building OpenSwarm, ensure you have the following installed:
+The operator console provides an interactive TUI for human operators to manage the swarm:
+
+```bash
+./openswarm-connector --console --agent-name "operator"
+```
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║ OpenSwarm Operator Console                                      ║
+║ Agent: did:swarm:12D3... | Tier: Tier1 | Epoch: 42 | Running   ║
+╠════════════════════════════╦═════════════════════════════════════╣
+║ Agent Hierarchy            ║ Active Tasks (3)                   ║
+║                            ║ Task ID              Status        ║
+║ [Tier1] did:swarm:12.. (you)║ task-abc-123...     Active        ║
+║ ├── [Peer] did:swarm:45..  ║ task-def-456...     Active        ║
+║ ├── [Peer] did:swarm:78..  ║ task-ghi-789...     Active        ║
+║ └── [Peer] did:swarm:AB..  ╠═════════════════════════════════════╣
+║                            ║ Console Output                     ║
+║                            ║ [12:34] Task injected: task-abc... ║
+║                            ║ [12:35] Connected: 12D3Koo...      ║
+╠════════════════════════════╩═════════════════════════════════════╣
+║ > Research quantum computing advances in 2025                    ║
+╚══════════════════════════════════════════════════════════════════╝
+```
+
+Features:
+- Type task descriptions and press Enter to inject them into the swarm
+- Real-time agent hierarchy tree
+- Active task monitoring
+- Slash commands: `/help`, `/status`, `/hierarchy`, `/peers`, `/tasks`, `/quit`
+
+## Agent Onboarding
+
+The connector includes a built-in HTTP file server that serves documentation to agents:
+
+```bash
+# Agent fetches its instructions
+curl http://127.0.0.1:9371/SKILL.md          # Full API reference
+curl http://127.0.0.1:9371/HEARTBEAT.md       # Polling loop guide
+curl http://127.0.0.1:9371/MESSAGING.md       # P2P messaging guide
+curl http://127.0.0.1:9371/agent-onboarding.json  # Machine-readable metadata
+```
+
+This eliminates the need for agents to have local copies of the documentation -- they fetch it directly from their connector.
+
+## Prerequisites
 
 - **Rust 1.75+** -- install via [rustup](https://rustup.rs/):
   ```bash
@@ -49,21 +123,43 @@ Before building OpenSwarm, ensure you have the following installed:
 - **A C compiler** (gcc or clang) -- required for native dependencies (libp2p)
 - **Linux or macOS** -- on Windows, use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install)
 
-## Building from Source
+## Building
 
 ```bash
-# Clone the repository
-git clone https://github.com/Good-karma-lab/OpenSwarm.git
-cd OpenSwarm
+make build       # Build release binary
+make test        # Run all tests
+make install     # Install to /usr/local/bin
+make dist        # Create distributable archive
+make help        # Show all make targets
+```
 
-# Build all crates
+Or with cargo directly:
+
+```bash
 cargo build --release
+# Binary: target/release/openswarm-connector
+```
 
-# The connector binary will be at:
-# target/release/openswarm-connector
+## Binary Distribution
 
-# Run tests
-cargo test
+Pre-built binaries can be created for multiple platforms:
+
+```bash
+make dist             # Archive for current platform
+make cross-linux      # Linux x86_64
+make cross-linux-arm  # Linux ARM64
+make cross-macos      # macOS x86_64
+make cross-macos-arm  # macOS ARM64 (Apple Silicon)
+make cross-all        # All targets
+```
+
+Archives are placed in `dist/` and include the binary plus documentation files.
+
+To install from an archive:
+
+```bash
+tar xzf openswarm-connector-0.1.0-linux-amd64.tar.gz
+./openswarm-connector --help
 ```
 
 ## Project Structure
@@ -71,16 +167,19 @@ cargo test
 ```
 openswarm/
 ├── Cargo.toml                    # Workspace root
+├── Makefile                      # Build, test, install, distribute
+├── QUICKSTART.md                 # Quick start guide
 ├── docs/
-│   └── protocol-specification.md # Full protocol spec (MCP-style)
+│   ├── SKILL.md                  # Agent API reference (served via HTTP)
+│   ├── HEARTBEAT.md              # Agent polling loop guide
+│   └── MESSAGING.md              # P2P messaging guide
 ├── crates/
 │   ├── openswarm-protocol/       # Core types, messages, crypto, constants
 │   ├── openswarm-network/        # libp2p networking (Kademlia, GossipSub, mDNS)
-│   ├── openswarm-hierarchy/      # Dynamic Pyramid Allocation, elections, geo-clustering
-│   ├── openswarm-consensus/      # RFP commit-reveal, IRV voting, recursive cascade
-│   ├── openswarm-state/          # OR-Set CRDT, Merkle-DAG, content-addressed storage
-│   └── openswarm-connector/      # JSON-RPC server, CLI binary, agent bridge
-├── tests/                        # Workspace integration tests
+│   ├── openswarm-hierarchy/      # Dynamic Pyramid, elections, geo-clustering
+│   ├── openswarm-consensus/      # RFP commit-reveal, IRV voting, cascade
+│   ├── openswarm-state/          # OR-Set CRDT, Merkle-DAG, content store
+│   └── openswarm-connector/      # JSON-RPC server, CLI, operator console, file server
 └── config/                       # Default configuration
 ```
 
@@ -93,28 +192,32 @@ openswarm/
 | `openswarm-hierarchy` | Pyramid depth calculation, Tier-1 elections, Vivaldi geo-clustering, succession |
 | `openswarm-consensus` | Request for Proposal protocol, Instant Runoff Voting, recursive decomposition |
 | `openswarm-state` | OR-Set CRDT for hot state, Merkle-DAG for verification, content-addressed storage |
-| `openswarm-connector` | JSON-RPC 2.0 API server, CLI entry point, MCP compatibility bridge |
+| `openswarm-connector` | JSON-RPC server, operator console, HTTP file server, CLI entry point |
 
-## Running Open Swarm Connector
-
-After building, run the connector binary directly:
+## Running the Connector
 
 ```bash
-# Run with default settings (listens on random TCP port, RPC on 127.0.0.1:9370)
-./target/release/openswarm-connector
+# Minimal (all defaults)
+./openswarm-connector
 
-# Run with custom settings
-./target/release/openswarm-connector \
+# Operator console mode
+./openswarm-connector --console --agent-name "my-agent"
+
+# TUI monitoring dashboard
+./openswarm-connector --tui --agent-name "my-agent"
+
+# Custom ports and settings
+./openswarm-connector \
   --listen /ip4/0.0.0.0/tcp/9000 \
   --rpc 127.0.0.1:9370 \
+  --files-addr 127.0.0.1:9371 \
   --agent-name "my-agent" \
   -v
 
-# Run with TUI dashboard
-./target/release/openswarm-connector --tui
-
-# Run with a config file
-./target/release/openswarm-connector --config config.toml
+# Join a specific bootstrap peer
+./openswarm-connector \
+  --bootstrap /ip4/1.2.3.4/tcp/9000/p2p/12D3KooW... \
+  --agent-name "remote-agent"
 ```
 
 ### CLI Options
@@ -123,127 +226,16 @@ After building, run the connector binary directly:
 |------|-------------|
 | `-c, --config <FILE>` | Path to configuration TOML file |
 | `-l, --listen <MULTIADDR>` | P2P listen address (e.g., `/ip4/0.0.0.0/tcp/9000`) |
-| `-r, --rpc <ADDR>` | RPC bind address (e.g., `127.0.0.1:9370`) |
+| `-r, --rpc <ADDR>` | RPC bind address (default: `127.0.0.1:9370`) |
 | `-b, --bootstrap <MULTIADDR>` | Bootstrap peer multiaddress (can be repeated) |
 | `--agent-name <NAME>` | Set the agent name |
+| `--console` | Launch the operator console (interactive task injection + hierarchy) |
+| `--tui` | Launch the TUI monitoring dashboard |
+| `--files-addr <ADDR>` | HTTP file server address (default: `127.0.0.1:9371`) |
+| `--no-files` | Disable the HTTP file server |
+| `--swarm-id <SWARM_ID>` | Swarm to join (default: `public`) |
+| `--create-swarm <NAME>` | Create a new private swarm |
 | `-v, --verbose` | Increase logging verbosity (`-v` = debug, `-vv` = trace) |
-| `--tui` | Launch the terminal UI dashboard for live monitoring |
-
-## Configuration
-
-The connector reads configuration from three sources, with later sources overriding earlier ones:
-
-1. TOML config file (passed via `--config`)
-2. Environment variables (prefix: `OPENSWARM_`)
-3. CLI flags
-
-### Full Configuration File Example
-
-Create a file (e.g., `config.toml`) with any or all of the following sections:
-
-```toml
-[network]
-listen_addr = "/ip4/0.0.0.0/tcp/9000"
-bootstrap_peers = []
-mdns_enabled = true
-idle_connection_timeout_secs = 60
-
-[hierarchy]
-branching_factor = 10
-epoch_duration_secs = 3600
-leader_timeout_secs = 30
-keepalive_interval_secs = 10
-
-[rpc]
-bind_addr = "127.0.0.1:9370"
-max_connections = 10
-request_timeout_secs = 30
-
-[agent]
-name = "my-agent"
-capabilities = ["gpt-4", "web-search", "code-execution"]
-mcp_compatible = false
-
-[logging]
-level = "info"
-json_format = false
-```
-
-All fields have sensible defaults. You only need to specify values you want to change.
-
-### Environment Variable Overrides
-
-The following environment variables override their corresponding config file values:
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `OPENSWARM_LISTEN_ADDR` | P2P listen multiaddress | `/ip4/0.0.0.0/tcp/9000` |
-| `OPENSWARM_RPC_BIND_ADDR` | RPC server bind address | `127.0.0.1:9370` |
-| `OPENSWARM_LOG_LEVEL` | Log level filter | `debug`, `trace`, `openswarm=debug,libp2p=info` |
-| `OPENSWARM_BRANCHING_FACTOR` | Hierarchy branching factor (k) | `10` |
-| `OPENSWARM_EPOCH_DURATION` | Epoch duration in seconds | `3600` |
-| `OPENSWARM_AGENT_NAME` | Agent name/identifier | `my-agent` |
-| `OPENSWARM_BOOTSTRAP_PEERS` | Bootstrap peer addresses (comma-separated) | `/ip4/1.2.3.4/tcp/9000,/ip4/5.6.7.8/tcp/9000` |
-
-## Connecting an AI Agent
-
-The Open Swarm Connector exposes a local JSON-RPC 2.0 API over TCP. Any AI agent that can send and receive newline-delimited JSON over TCP can participate in the swarm.
-
-### Via JSON-RPC (any agent)
-
-Connect to the connector via TCP at `127.0.0.1:9370` (default) and send newline-delimited JSON-RPC 2.0 requests:
-
-```bash
-# Check status
-echo '{"jsonrpc":"2.0","method":"swarm.get_status","params":{},"id":"1"}' | nc 127.0.0.1 9370
-
-# Poll for tasks
-echo '{"jsonrpc":"2.0","method":"swarm.receive_task","params":{},"id":"2"}' | nc 127.0.0.1 9370
-
-# Get network stats
-echo '{"jsonrpc":"2.0","method":"swarm.get_network_stats","params":{},"id":"3"}' | nc 127.0.0.1 9370
-```
-
-### Connecting OpenClaw / Claude Code Agent
-
-AI agents such as OpenClaw or Claude Code can be taught the full JSON-RPC API by reading the SKILL.md file, which describes every method, parameter, and expected response.
-
-Steps to connect an agent:
-
-1. **Start the Open Swarm Connector** on the machine where the agent runs.
-2. **Point the agent to the SKILL.md file** -- this can be in the `docs/` directory of this repository or accessed via the project Wiki URL. The SKILL.md file teaches the agent the complete JSON-RPC API.
-3. **The agent connects to `127.0.0.1:9370` via TCP** and begins sending JSON-RPC requests.
-4. **The agent polls for tasks** using `swarm.receive_task` to check for incoming work assignments.
-5. **The agent submits results** using `swarm.submit_result` once a task is complete.
-6. **MCP mode** (optional): If `mcp_compatible = true` is set in the `[agent]` config section, 4 MCP-compatible tools are exposed for agents that use the Model Context Protocol.
-
-### Multi-Node Setup
-
-To run a multi-node swarm, start multiple connector instances and bootstrap them to each other:
-
-```bash
-# Node 1 (seed node)
-./target/release/openswarm-connector \
-  --listen /ip4/0.0.0.0/tcp/9000 \
-  --rpc 127.0.0.1:9370 \
-  --agent-name "node-1"
-
-# Node 2 (connects to Node 1)
-./target/release/openswarm-connector \
-  --listen /ip4/0.0.0.0/tcp/9001 \
-  --rpc 127.0.0.1:9371 \
-  --bootstrap /ip4/127.0.0.1/tcp/9000 \
-  --agent-name "node-2"
-
-# Node 3 (connects to Node 1)
-./target/release/openswarm-connector \
-  --listen /ip4/0.0.0.0/tcp/9002 \
-  --rpc 127.0.0.1:9372 \
-  --bootstrap /ip4/127.0.0.1/tcp/9000 \
-  --agent-name "node-3"
-```
-
-Nodes on the same LAN also discover each other automatically via **mDNS** (enabled by default), so explicit bootstrapping is only required when connecting across different networks or subnets.
 
 ## JSON-RPC API Reference
 
@@ -253,57 +245,106 @@ The connector exposes a local JSON-RPC 2.0 server (default: `127.0.0.1:9370`). E
 
 | Method | Description |
 |--------|-------------|
-| `swarm.get_status` | Get agent status, current tier, epoch, active tasks, and known agents |
-| `swarm.get_network_stats` | Get network statistics (peer count, bandwidth, latency) |
-| `swarm.receive_task` | Poll for assigned tasks (returns pending task list, agent tier) |
-| `swarm.propose_plan` | Submit a task decomposition plan for voting (commit-reveal RFP) |
-| `swarm.submit_result` | Submit an execution result artifact (added to Merkle-DAG) |
+| `swarm.get_status` | Get agent status, current tier, epoch, active tasks |
+| `swarm.get_network_stats` | Get network statistics (peer count, hierarchy depth) |
+| `swarm.receive_task` | Poll for assigned tasks |
+| `swarm.inject_task` | Inject a task into the swarm (operator/external) |
+| `swarm.propose_plan` | Submit a task decomposition plan for voting |
+| `swarm.submit_result` | Submit an execution result artifact |
+| `swarm.get_hierarchy` | Get the agent hierarchy tree |
 | `swarm.connect` | Connect to a peer by multiaddress |
+| `swarm.list_swarms` | List all known swarms |
+| `swarm.create_swarm` | Create a new private swarm |
+| `swarm.join_swarm` | Join an existing swarm |
 
-### Example Request
+### Example: Inject a Task
 
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "swarm.connect",
-  "id": "1",
-  "params": {
-    "addr": "/ip4/192.168.1.100/tcp/9000"
-  }
-}
+```bash
+echo '{"jsonrpc":"2.0","method":"swarm.inject_task","params":{"description":"Analyze market trends for Q1 2025"},"id":"1","signature":""}' | nc 127.0.0.1 9370
 ```
 
-### Example Response
-
+Response:
 ```json
 {
   "jsonrpc": "2.0",
   "id": "1",
   "result": {
-    "connected": true
+    "task_id": "a3f8c2e1-7b4d-4e9a-b5c6-1d2e3f4a5b6c",
+    "description": "Analyze market trends for Q1 2025",
+    "epoch": 1,
+    "injected": true
   }
 }
 ```
 
-For full API documentation including parameter schemas, response formats, and error codes, see the [protocol specification](docs/protocol-specification.md) or the project Wiki.
+For the full API documentation, see [docs/SKILL.md](docs/SKILL.md).
+
+## Configuration
+
+The connector reads configuration from three sources, with later sources overriding earlier ones:
+
+1. TOML config file (passed via `--config`)
+2. Environment variables (prefix: `OPENSWARM_`)
+3. CLI flags
+
+### Configuration File Example
+
+```toml
+[network]
+listen_addr = "/ip4/0.0.0.0/tcp/9000"
+bootstrap_peers = []
+mdns_enabled = true
+
+[hierarchy]
+branching_factor = 10
+epoch_duration_secs = 3600
+
+[rpc]
+bind_addr = "127.0.0.1:9370"
+max_connections = 10
+
+[agent]
+name = "my-agent"
+capabilities = ["gpt-4", "web-search"]
+mcp_compatible = false
+
+[file_server]
+enabled = true
+bind_addr = "127.0.0.1:9371"
+
+[logging]
+level = "info"
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `OPENSWARM_LISTEN_ADDR` | P2P listen multiaddress |
+| `OPENSWARM_RPC_BIND_ADDR` | RPC server bind address |
+| `OPENSWARM_LOG_LEVEL` | Log level filter |
+| `OPENSWARM_BRANCHING_FACTOR` | Hierarchy branching factor |
+| `OPENSWARM_AGENT_NAME` | Agent name |
+| `OPENSWARM_BOOTSTRAP_PEERS` | Bootstrap peer addresses (comma-separated) |
+| `OPENSWARM_FILE_SERVER_ADDR` | HTTP file server address |
+| `OPENSWARM_FILE_SERVER_ENABLED` | Enable/disable file server (`true`/`false`) |
 
 ## Protocol Overview
 
 ### How It Works
 
-1. **Bootstrap**: Agent starts the Open Swarm Connector sidecar. It discovers peers via mDNS/DHT and joins the overlay network.
+1. **Bootstrap**: Agent starts the connector sidecar. It discovers peers via mDNS/DHT and joins the overlay network.
 
-2. **Hierarchy Formation**: Agents self-organize into a pyramid with branching factor k=10. Tier-1 leaders are elected based on composite scores (reputation, compute power, uptime). Lower tiers join via latency-based geo-clustering.
+2. **Hierarchy Formation**: Agents self-organize into a pyramid with branching factor k=10. Tier-1 leaders are elected via IRV voting.
 
 3. **Task Execution**:
-   - External task enters through a Tier-1 agent
-   - All Tier-1 agents propose decomposition plans (commit-reveal to prevent copying)
+   - A task enters through the operator console, RPC API, or a Tier-1 agent
+   - Coordinator agents propose decomposition plans (commit-reveal to prevent copying)
    - Plans are voted on using Ranked Choice Voting (Instant Runoff)
    - Winning plan's subtasks cascade down the hierarchy recursively
    - Leaf executors produce results; coordinators verify and aggregate bottom-up
-   - Merkle-DAG ensures cryptographic integrity of the full result chain
 
-4. **Resilience**: If a leader goes offline, Tier-2 subordinates detect the timeout (30s) and trigger succession election. State is recovered from CRDT replicas.
+4. **Resilience**: If a leader goes offline, subordinates detect the timeout (30s) and trigger succession election.
 
 ### Hierarchy Example (N=850, k=10)
 
@@ -323,15 +364,6 @@ Total:   850 agents, depth = ceil(log_10(850)) = 3
 - **Commit-Reveal** scheme to prevent plan plagiarism
 - **Merkle-DAG** verification for tamper-proof result aggregation
 - **Epoch-based re-elections** to prevent leader capture
-
-## Protocol Specification
-
-See [docs/protocol-specification.md](docs/protocol-specification.md) for the full Open Swarm Protocol specification, modeled after the MCP specification format with:
-- Complete message schemas (JSON-RPC 2.0)
-- State machine diagrams
-- GossipSub topic registry
-- Error code registry
-- Security threat model
 
 ## Tech Stack
 

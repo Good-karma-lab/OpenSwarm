@@ -155,7 +155,6 @@ impl SwarmTui {
             cascade_total: cascade_status.total_subtasks,
             content_items: state.content_store.item_count(),
             event_log: state.event_log.clone(),
-            current_swarm_id: current_swarm_id_str,
             current_swarm_name,
             known_swarms,
         }
@@ -684,7 +683,6 @@ struct StateSnapshot {
     cascade_total: usize,
     content_items: usize,
     event_log: Vec<LogEntry>,
-    current_swarm_id: String,
     current_swarm_name: String,
     /// (swarm_id, name, is_public, agent_count, joined)
     known_swarms: Vec<(String, String, bool, u64, bool)>,

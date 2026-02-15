@@ -15,6 +15,9 @@ use openswarm_network::{
     discovery::DiscoveryConfig,
     transport::TransportConfig,
 };
+use openswarm_protocol::{
+    AgentId, ProtocolMethod, ProposalCommitParams, SwarmMessage, SwarmTopics,
+};
 
 /// Helper: create a SwarmHost on a random port with mDNS enabled.
 fn spawn_node() -> (SwarmHost, SwarmHandle, tokio::sync::mpsc::Receiver<NetworkEvent>) {
@@ -227,6 +230,139 @@ async fn test_gossipsub_message_exchange() {
     task_b.abort();
 }
 
+#[tokio::test]
+#[ignore = "Requires networking support"]
+async fn test_proposal_commit_topic_exchange_between_peers() {
+    let (host_a, handle_a, mut events_a) = spawn_node();
+    let (host_b, handle_b, mut events_b) = spawn_node();
+
+    let task_a = tokio::spawn(async move { host_a.run().await });
+    let task_b = tokio::spawn(async move { host_b.run().await });
+
+    let addr_b = wait_for_listening(&mut events_b, Duration::from_secs(5))
+        .await
+        .expect("Node B must start listening");
+    let _addr_a = wait_for_listening(&mut events_a, Duration::from_secs(5))
+        .await
+        .expect("Node A must start listening");
+
+    handle_a.dial(addr_b).await.expect("Dial should succeed");
+    wait_for_peer_connected(&mut events_a, Duration::from_secs(10))
+        .await
+        .expect("Connection should establish");
+
+    let task_id = "task-proposal-topic-test";
+    let proposals_topic = SwarmTopics::proposals(task_id);
+    handle_a
+        .subscribe(&proposals_topic)
+        .await
+        .expect("A subscribe proposals topic");
+    handle_b
+        .subscribe(&proposals_topic)
+        .await
+        .expect("B subscribe proposals topic");
+
+    // Give GossipSub time to form mesh and propagate subscriptions.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let commit = ProposalCommitParams {
+        task_id: task_id.to_string(),
+        proposer: AgentId::new("did:swarm:test-proposer".to_string()),
+        epoch: 1,
+        plan_hash: "0123456789abcdef".to_string(),
+    };
+    let msg = SwarmMessage::new(
+        ProtocolMethod::ProposalCommit.as_str(),
+        serde_json::to_value(&commit).expect("serialize commit"),
+        String::new(),
+    );
+    let bytes = serde_json::to_vec(&msg).expect("serialize message");
+    handle_a
+        .publish(&proposals_topic, bytes)
+        .await
+        .expect("Publish proposal commit should succeed");
+
+    let received = timeout(Duration::from_secs(10), async {
+        loop {
+            match events_b.recv().await {
+                Some(NetworkEvent::MessageReceived { data, topic, .. }) if topic == proposals_topic => {
+                    return Some(data);
+                }
+                Some(_) => continue,
+                None => return None,
+            }
+        }
+    })
+    .await;
+
+    match received {
+        Ok(Some(data)) => {
+            let received_msg: SwarmMessage =
+                serde_json::from_slice(&data).expect("parse received message");
+            assert_eq!(received_msg.method, ProtocolMethod::ProposalCommit.as_str());
+        }
+        _ => panic!("Expected proposal commit message on proposals topic"),
+    }
+
+    task_a.abort();
+    task_b.abort();
+}
+
+#[tokio::test]
+#[ignore = "Requires networking support"]
+async fn test_same_tier_task_topic_exchange_between_peers() {
+    let (host_a, handle_a, mut events_a) = spawn_node();
+    let (host_b, handle_b, mut events_b) = spawn_node();
+
+    let task_a = tokio::spawn(async move { host_a.run().await });
+    let task_b = tokio::spawn(async move { host_b.run().await });
+
+    let addr_b = wait_for_listening(&mut events_b, Duration::from_secs(5))
+        .await
+        .expect("Node B must start listening");
+    let _addr_a = wait_for_listening(&mut events_a, Duration::from_secs(5))
+        .await
+        .expect("Node A must start listening");
+
+    handle_a.dial(addr_b).await.expect("Dial should succeed");
+    wait_for_peer_connected(&mut events_a, Duration::from_secs(10))
+        .await
+        .expect("Connection should establish");
+
+    let topic = SwarmTopics::tasks_for("public", 2);
+    handle_a.subscribe(&topic).await.expect("A subscribe");
+    handle_b.subscribe(&topic).await.expect("B subscribe");
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let payload = b"tier2-peer-message".to_vec();
+    handle_a
+        .publish(&topic, payload.clone())
+        .await
+        .expect("Publish should succeed");
+
+    let received = timeout(Duration::from_secs(10), async {
+        loop {
+            match events_b.recv().await {
+                Some(NetworkEvent::MessageReceived { data, topic: t, .. }) if t == topic => {
+                    return Some(data);
+                }
+                Some(_) => continue,
+                None => return None,
+            }
+        }
+    })
+    .await;
+
+    match received {
+        Ok(Some(data)) => assert_eq!(data, payload),
+        _ => panic!("Expected same-tier task topic message"),
+    }
+
+    task_a.abort();
+    task_b.abort();
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Test: Three nodes form a network
 // ═══════════════════════════════════════════════════════════════
@@ -243,7 +379,7 @@ async fn test_three_node_network() {
     let task_c = tokio::spawn(async move { host_c.run().await });
 
     // Wait for all to listen.
-    let addr_a = wait_for_listening(&mut events_a, Duration::from_secs(5))
+    let _addr_a = wait_for_listening(&mut events_a, Duration::from_secs(5))
         .await
         .expect("A listening");
     let addr_b = wait_for_listening(&mut events_b, Duration::from_secs(5))
@@ -322,7 +458,7 @@ fn test_pyramid_assignment_for_multi_agent_swarm() {
     let mut tier1_count = 0;
     let mut executor_count = 0;
 
-    for (rank, agent) in agents.iter().enumerate() {
+    for (rank, _agent) in agents.iter().enumerate() {
         let tier = allocator.assign_tier(rank, &layout);
         match tier {
             Tier::Tier1 => tier1_count += 1,

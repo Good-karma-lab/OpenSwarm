@@ -254,6 +254,105 @@ fn e2e_merkle_verification_three_tier() {
     );
 }
 
+#[test]
+fn e2e_multilevel_cascade_decomposition_and_backprop() {
+    use openswarm_consensus::CascadeEngine;
+
+    let mut cascade = CascadeEngine::new();
+
+    // Root plan: split into two coordinator-level subtasks.
+    let mut root_plan = Plan::new("root-task".into(), AgentId::new("tier1".into()), 1);
+    root_plan.subtasks = vec![
+        PlanSubtask {
+            index: 0,
+            description: "Domain A".into(),
+            required_capabilities: vec!["analysis".into()],
+            estimated_complexity: 0.6,
+        },
+        PlanSubtask {
+            index: 1,
+            description: "Domain B".into(),
+            required_capabilities: vec!["analysis".into()],
+            estimated_complexity: 0.4,
+        },
+    ];
+
+    let tier2_nodes = vec![
+        (AgentId::new("tier2-a".into()), Tier::Tier2),
+        (AgentId::new("tier2-b".into()), Tier::Tier2),
+    ];
+    let root_assignments = cascade
+        .distribute_subtasks("root-task", &root_plan, &tier2_nodes, 1)
+        .unwrap();
+    assert_eq!(root_assignments.len(), 2);
+    assert!(root_assignments.iter().all(|a| a.requires_cascade));
+
+    // First coordinator decomposes further to executors.
+    let first_mid_task = root_assignments[0].task.task_id.clone();
+    let mut mid_plan = Plan::new(
+        first_mid_task.clone(),
+        AgentId::new("tier2-a".into()),
+        1,
+    );
+    mid_plan.subtasks = vec![
+        PlanSubtask {
+            index: 0,
+            description: "Leaf A1".into(),
+            required_capabilities: vec!["exec".into()],
+            estimated_complexity: 0.5,
+        },
+        PlanSubtask {
+            index: 1,
+            description: "Leaf A2".into(),
+            required_capabilities: vec!["exec".into()],
+            estimated_complexity: 0.5,
+        },
+    ];
+
+    let executors = vec![
+        (AgentId::new("exec-1".into()), Tier::Executor),
+        (AgentId::new("exec-2".into()), Tier::Executor),
+    ];
+    let leaf_assignments = cascade
+        .distribute_subtasks(&first_mid_task, &mid_plan, &executors, 1)
+        .unwrap();
+    assert_eq!(leaf_assignments.len(), 2);
+    assert!(leaf_assignments.iter().all(|a| !a.requires_cascade));
+
+    // Leaf completions aggregate to their parent.
+    assert!(!cascade
+        .record_subtask_completion(&leaf_assignments[0].task.task_id)
+        .unwrap());
+    assert!(cascade
+        .record_subtask_completion(&leaf_assignments[1].task.task_id)
+        .unwrap());
+
+    // Parent of this branch is now complete, mark the branch subtask itself done.
+    assert!(!cascade
+        .record_subtask_completion(&root_assignments[0].task.task_id)
+        .unwrap());
+
+    // Mark sibling root-level branch done; now root cascade completes.
+    assert!(cascade
+        .record_subtask_completion(&root_assignments[1].task.task_id)
+        .unwrap());
+
+    assert!(cascade.is_complete());
+}
+
+#[test]
+fn e2e_same_tier_topic_and_method_support() {
+    // Same-tier peers should communicate on the same tier topic namespace.
+    let tier2_topic = SwarmTopics::tasks_for("public", 2);
+    assert!(tier2_topic.contains("/tasks/tier2"));
+
+    // Agent heartbeat protocol method should round-trip.
+    let method = ProtocolMethod::AgentKeepAlive;
+    let parsed = ProtocolMethod::from_str(method.as_str());
+    assert!(parsed.is_some());
+    assert_eq!(parsed.unwrap().as_str(), "agent.keepalive");
+}
+
 // Helper for hex encoding
 fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()

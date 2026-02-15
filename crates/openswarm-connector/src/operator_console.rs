@@ -27,7 +27,7 @@ use tokio::sync::RwLock;
 
 use crate::connector::{ConnectorState, ConnectorStatus};
 use crate::tui::{LogCategory, LogEntry};
-use openswarm_protocol::{Task, Tier};
+use openswarm_protocol::{Task, TaskStatus, Tier};
 
 /// A node in the hierarchy tree for display.
 #[derive(Debug, Clone)]
@@ -38,6 +38,7 @@ pub struct HierarchyNode {
     pub is_self: bool,
     pub children: Vec<HierarchyNode>,
     pub task_count: usize,
+    pub last_seen_secs: Option<i64>,
 }
 
 /// Snapshot of operator console state for rendering.
@@ -50,10 +51,19 @@ struct ConsoleSnapshot {
     status_color: Color,
     peer_count: usize,
     swarm_size: u64,
-    active_tasks: Vec<String>,
+    active_tasks: Vec<TaskView>,
     hierarchy: Vec<HierarchyNode>,
     event_log: Vec<LogEntry>,
     current_swarm_name: String,
+}
+
+#[derive(Debug, Clone)]
+struct TaskView {
+    task_id: String,
+    status: String,
+    description: String,
+    assigned_to: String,
+    subtask_count: usize,
 }
 
 /// The operator console TUI state.
@@ -121,9 +131,36 @@ impl OperatorConsole {
             epoch: state.epoch_manager.current_epoch(),
             status: format_status(&state.status),
             status_color: status_color(&state.status),
-            peer_count: state.agent_set.len(),
+            peer_count: state.member_set.len(),
             swarm_size: state.network_stats.total_agents,
-            active_tasks: state.task_set.elements(),
+            active_tasks: state
+                .task_set
+                .elements()
+                .iter()
+                .map(|task_id| {
+                    if let Some(task) = state.task_details.get(task_id) {
+                        TaskView {
+                            task_id: task.task_id.clone(),
+                            status: format_task_status(task.status).to_string(),
+                            description: task.description.clone(),
+                            assigned_to: task
+                                .assigned_to
+                                .as_ref()
+                                .map(|a| truncate_agent_id(&a.to_string()))
+                                .unwrap_or_else(|| "-".to_string()),
+                            subtask_count: task.subtasks.len(),
+                        }
+                    } else {
+                        TaskView {
+                            task_id: task_id.clone(),
+                            status: "Pending".to_string(),
+                            description: "(details unavailable)".to_string(),
+                            assigned_to: "-".to_string(),
+                            subtask_count: 0,
+                        }
+                    }
+                })
+                .collect(),
             hierarchy,
             event_log: state.event_log.clone(),
             current_swarm_name,
@@ -177,6 +214,10 @@ impl OperatorConsole {
                     Color::White,
                 );
                 self.add_message(
+                    "  /agents      - Show known agents and heartbeat age",
+                    Color::White,
+                );
+                self.add_message(
                     "  /peers       - List connected peers",
                     Color::White,
                 );
@@ -194,14 +235,14 @@ impl OperatorConsole {
                 );
             }
             "/status" => {
-                let (agent_id, tier, epoch, status, peers, tasks, content) = {
+                let (agent_id, tier, epoch, status, members, tasks, content) = {
                     let state = self.state.read().await;
                     (
                         state.agent_id.to_string(),
                         format!("{:?}", state.my_tier),
                         state.epoch_manager.current_epoch(),
                         format!("{:?}", state.status),
-                        state.agent_set.len(),
+                        state.member_set.len(),
                         state.task_set.len(),
                         state.content_store.item_count(),
                     )
@@ -215,7 +256,7 @@ impl OperatorConsole {
                     Color::Green,
                 );
                 self.add_message(
-                    &format!("Peers: {} | Tasks: {} | Content: {}", peers, tasks, content),
+                    &format!("Members: {} | Tasks: {} | Content: {}", members, tasks, content),
                     Color::Green,
                 );
             }
@@ -239,7 +280,29 @@ impl OperatorConsole {
             "/tasks" => {
                 let tasks = {
                     let state = self.state.read().await;
-                    state.task_set.elements()
+                    state
+                        .task_set
+                        .elements()
+                        .iter()
+                        .map(|task_id| {
+                            state
+                                .task_details
+                                .get(task_id)
+                                .cloned()
+                                .unwrap_or_else(|| Task {
+                                    task_id: task_id.clone(),
+                                    parent_task_id: None,
+                                    epoch: state.epoch_manager.current_epoch(),
+                                    status: TaskStatus::Pending,
+                                    description: "(details unavailable)".to_string(),
+                                    assigned_to: None,
+                                    tier_level: 1,
+                                    subtasks: Vec::new(),
+                                    created_at: chrono::Utc::now(),
+                                    deadline: None,
+                                })
+                        })
+                        .collect::<Vec<_>>()
                 };
                 if tasks.is_empty() {
                     self.add_message("No active tasks.", Color::Yellow);
@@ -249,11 +312,25 @@ impl OperatorConsole {
                         Color::Cyan,
                     );
                     for task in &tasks {
-                        self.add_message(&format!("  {}", task), Color::White);
+                        self.add_message(
+                            &format!(
+                                "  {} [{}] assigned={} subtasks={} {}",
+                                task.task_id,
+                                format_task_status(task.status),
+                                task
+                                    .assigned_to
+                                    .as_ref()
+                                    .map(|a| truncate_agent_id(&a.to_string()))
+                                    .unwrap_or_else(|| "-".to_string()),
+                                task.subtasks.len(),
+                                task.description
+                            ),
+                            Color::White,
+                        );
                     }
                 }
             }
-            "/hierarchy" => {
+            "/hierarchy" | "/agents" => {
                 let hierarchy = {
                     let state = self.state.read().await;
                     build_hierarchy_tree(&state)
@@ -261,7 +338,7 @@ impl OperatorConsole {
                 if hierarchy.is_empty() {
                     self.add_message("No hierarchy data available yet.", Color::Yellow);
                 } else {
-                    self.add_message("Agent Hierarchy:", Color::Cyan);
+                    self.add_message("Known Agents:", Color::Cyan);
                     for node in &hierarchy {
                         print_hierarchy_node(node, "", true, &mut self.console_messages);
                     }
@@ -288,6 +365,14 @@ impl OperatorConsole {
 
         // Add task to the local task set.
         state.task_set.add(task_id.clone());
+        state.task_details.insert(task_id.clone(), task);
+        let actor = state.agent_id.to_string();
+        state.push_task_timeline_event(
+            &task_id,
+            "injected",
+            format!("Task injected via console: {}", description),
+            Some(actor),
+        );
 
         // Log the injection.
         state.push_log(
@@ -357,7 +442,7 @@ impl OperatorConsole {
             Span::styled(snap.epoch.to_string(), Style::default().fg(Color::Magenta)),
             Span::styled("  |  Status: ", Style::default().fg(Color::Gray)),
             Span::styled(&snap.status, Style::default().fg(snap.status_color)),
-            Span::styled("  |  Peers: ", Style::default().fg(Color::Gray)),
+            Span::styled("  |  Members: ", Style::default().fg(Color::Gray)),
             Span::styled(snap.peer_count.to_string(), Style::default().fg(Color::Green)),
             Span::styled("  |  Swarm: ", Style::default().fg(Color::Gray)),
             Span::styled(&snap.current_swarm_name, Style::default().fg(Color::LightCyan)),
@@ -394,7 +479,7 @@ impl OperatorConsole {
     /// Render the agent hierarchy tree panel.
     fn render_hierarchy(&self, frame: &mut Frame, area: Rect, snap: &ConsoleSnapshot) {
         let block = Block::default()
-            .title(" Agent Hierarchy ")
+            .title(" Known Agents ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Yellow));
 
@@ -402,16 +487,16 @@ impl OperatorConsole {
             let text = vec![
                 Line::from(""),
                 Line::from(Span::styled(
-                    "  Waiting for hierarchy data...",
+                    "  Waiting for agent activity...",
                     Style::default().fg(Color::DarkGray),
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "  Hierarchy forms as agents join",
+                    "  Agents appear when they vote",
                     Style::default().fg(Color::DarkGray),
                 )),
                 Line::from(Span::styled(
-                    "  and elections are held.",
+                    "  or submit task results.",
                     Style::default().fg(Color::DarkGray),
                 )),
             ];
@@ -458,11 +543,25 @@ impl OperatorConsole {
         let rows: Vec<Row> = snap
             .active_tasks
             .iter()
-            .map(|task_id| {
-                let short_id = if task_id.len() > 20 {
-                    format!("{}...", &task_id[..20])
+            .map(|task| {
+                let short_id = if task.task_id.len() > 16 {
+                    format!("{}...", &task.task_id[..16])
                 } else {
-                    task_id.clone()
+                    task.task_id.clone()
+                };
+                let desc = if task.description.len() > 24 {
+                    format!("{}...", &task.description[..24])
+                } else {
+                    task.description.clone()
+                };
+                let status_color = match task.status.as_str() {
+                    "Pending" => Color::Yellow,
+                    "Proposal" => Color::Cyan,
+                    "Voting" => Color::Magenta,
+                    "In Progress" => Color::Blue,
+                    "Completed" => Color::Green,
+                    "Failed" | "Rejected" => Color::Red,
+                    _ => Color::White,
                 };
                 Row::new(vec![
                     ratatui::widgets::Cell::from(Span::styled(
@@ -470,8 +569,16 @@ impl OperatorConsole {
                         Style::default().fg(Color::White),
                     )),
                     ratatui::widgets::Cell::from(Span::styled(
-                        "Active",
-                        Style::default().fg(Color::Yellow),
+                        task.status.clone(),
+                        Style::default().fg(status_color),
+                    )),
+                    ratatui::widgets::Cell::from(Span::styled(
+                        task.assigned_to.clone(),
+                        Style::default().fg(Color::White),
+                    )),
+                    ratatui::widgets::Cell::from(Span::styled(
+                        format!("{} [{} st]", desc, task.subtask_count),
+                        Style::default().fg(Color::Gray),
                     )),
                 ])
             })
@@ -479,11 +586,16 @@ impl OperatorConsole {
 
         let table = Table::new(
             rows,
-            [Constraint::Percentage(65), Constraint::Percentage(35)],
+            [
+                Constraint::Percentage(20),
+                Constraint::Percentage(16),
+                Constraint::Percentage(20),
+                Constraint::Percentage(44),
+            ],
         )
         .block(block)
         .header(
-            Row::new(vec!["  Task ID", "Status"])
+            Row::new(vec!["  Task ID", "Status", "Assigned", "Description"])
                 .style(Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
         );
 
@@ -653,38 +765,28 @@ impl OperatorConsole {
 
 /// Build a hierarchy tree from the connector state.
 fn build_hierarchy_tree(state: &ConnectorState) -> Vec<HierarchyNode> {
-    let self_id = state.agent_id.to_string();
-    let peers = state.agent_set.elements();
-
-    // Self node is always the root in the display.
-    let mut self_node = HierarchyNode {
-        agent_id: self_id.clone(),
-        display_name: truncate_agent_id(&self_id),
-        tier: format_tier(&state.my_tier),
-        is_self: true,
-        children: Vec::new(),
-        task_count: state.task_set.len(),
-    };
-
-    // Add peers as children (we don't have full hierarchy info,
-    // so show them as subordinates for now).
-    for peer in &peers {
-        let child = HierarchyNode {
-            agent_id: peer.clone(),
-            display_name: truncate_agent_id(peer),
-            tier: "Peer".to_string(),
-            is_self: false,
-            children: Vec::new(),
-            task_count: 0,
-        };
-        self_node.children.push(child);
-    }
-
-    if self_node.agent_id.is_empty() {
-        Vec::new()
-    } else {
-        vec![self_node]
-    }
+    state
+        .member_set
+        .elements()
+        .into_iter()
+        .map(|agent_id| {
+            let last_seen_secs = state.member_last_seen.get(&agent_id).map(|ts| {
+                chrono::Utc::now()
+                    .signed_duration_since(*ts)
+                    .num_seconds()
+                    .max(0)
+            });
+            HierarchyNode {
+                display_name: truncate_agent_id(&agent_id),
+                agent_id,
+                tier: "Agent".to_string(),
+                is_self: false,
+                children: Vec::new(),
+                task_count: 0,
+                last_seen_secs,
+            }
+        })
+        .collect()
 }
 
 /// Render hierarchy tree into display lines.
@@ -705,11 +807,16 @@ fn render_hierarchy_lines(
     let tier_color = match node.tier.as_str() {
         "Tier1" => Color::Red,
         "Tier2" => Color::Yellow,
+        "Agent" => Color::Cyan,
         "Peer" => Color::Cyan,
         _ => Color::White,
     };
 
     let self_marker = if node.is_self { " (you)" } else { "" };
+    let last_seen = node
+        .last_seen_secs
+        .map(|s| format!(" [{}s ago]", s))
+        .unwrap_or_else(|| " [never]".to_string());
     let task_info = if node.task_count > 0 {
         format!(" [{}t]", node.task_count)
     } else {
@@ -734,6 +841,7 @@ fn render_hierarchy_lines(
             self_marker.to_string(),
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
         ),
+        Span::styled(last_seen, Style::default().fg(Color::DarkGray)),
         Span::styled(task_info, Style::default().fg(Color::Yellow)),
     ]));
 
@@ -767,9 +875,16 @@ fn print_hierarchy_node(
     };
 
     let self_marker = if node.is_self { " (you)" } else { "" };
+    let last_seen = node
+        .last_seen_secs
+        .map(|s| format!(" [{}s ago]", s))
+        .unwrap_or_else(|| " [never]".to_string());
     messages.push((
         chrono::Utc::now(),
-        format!("  {}[{}] {}{}", branch, node.tier, node.display_name, self_marker),
+        format!(
+            "  {}[{}] {}{}{}",
+            branch, node.tier, node.display_name, self_marker, last_seen
+        ),
         if node.is_self { Color::Green } else { Color::White },
     ));
 
@@ -801,6 +916,18 @@ fn format_tier(tier: &Tier) -> String {
         Tier::Tier2 => "Tier2".to_string(),
         Tier::TierN(n) => format!("Tier{}", n),
         Tier::Executor => "Executor".to_string(),
+    }
+}
+
+fn format_task_status(status: TaskStatus) -> &'static str {
+    match status {
+        TaskStatus::Pending => "Pending",
+        TaskStatus::ProposalPhase => "Proposal",
+        TaskStatus::VotingPhase => "Voting",
+        TaskStatus::InProgress => "In Progress",
+        TaskStatus::Completed => "Completed",
+        TaskStatus::Failed => "Failed",
+        TaskStatus::Rejected => "Rejected",
     }
 }
 
@@ -902,4 +1029,63 @@ pub async fn run_operator_console(
 
     restore_terminal(&mut terminal)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hierarchy_building_shows_only_known_agents() {
+        use openswarm_hierarchy::{EpochManager, GeoCluster, PyramidAllocator, SuccessionManager};
+        use openswarm_protocol::{AgentId, SwarmId, Tier};
+        use openswarm_state::{ContentStore, GranularityAlgorithm, MerkleDag, OrSet};
+
+        let mut state = ConnectorState {
+            agent_id: AgentId::new("did:swarm:connector-self".to_string()),
+            status: ConnectorStatus::Running,
+            epoch_manager: EpochManager::default(),
+            pyramid: PyramidAllocator::default(),
+            election: None,
+            geo_cluster: GeoCluster::default(),
+            succession: SuccessionManager::new(),
+            rfp_coordinators: std::collections::HashMap::new(),
+            voting_engines: std::collections::HashMap::new(),
+            cascade: openswarm_consensus::CascadeEngine::new(),
+            task_set: OrSet::new("seed".to_string()),
+            task_details: std::collections::HashMap::new(),
+            task_timelines: std::collections::HashMap::new(),
+            agent_set: OrSet::new("seed".to_string()),
+            member_set: OrSet::new("seed".to_string()),
+            member_last_seen: std::collections::HashMap::new(),
+            merkle_dag: MerkleDag::new(),
+            content_store: ContentStore::new(),
+            granularity: GranularityAlgorithm::default(),
+            my_tier: Tier::Executor,
+            parent_id: None,
+            network_stats: openswarm_protocol::NetworkStats {
+                total_agents: 0,
+                hierarchy_depth: 1,
+                branching_factor: 10,
+                current_epoch: 1,
+                my_tier: Tier::Executor,
+                subordinate_count: 0,
+                parent_id: None,
+            },
+            event_log: Vec::new(),
+            start_time: chrono::Utc::now(),
+            current_swarm_id: SwarmId::new("public".to_string()),
+            known_swarms: std::collections::HashMap::new(),
+            swarm_token: None,
+        };
+
+        state.mark_member_seen("did:swarm:agent-1");
+        state.mark_member_seen("did:swarm:agent-2");
+
+        let tree = build_hierarchy_tree(&state);
+        assert_eq!(tree.len(), 2);
+        assert!(tree.iter().all(|n| n.tier == "Agent"));
+        assert!(tree.iter().all(|n| !n.is_self));
+        assert!(tree.iter().all(|n| n.last_seen_secs.is_some()));
+    }
 }

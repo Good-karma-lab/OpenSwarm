@@ -256,6 +256,7 @@ pub enum ProtocolMethod {
     ResultSubmission,
     VerificationResult,
     KeepAlive,
+    AgentKeepAlive,
     Succession,
     SwarmAnnounce,
     SwarmJoin,
@@ -278,6 +279,7 @@ impl ProtocolMethod {
             Self::ResultSubmission => "task.submit_result",
             Self::VerificationResult => "task.verification",
             Self::KeepAlive => "swarm.keepalive",
+            Self::AgentKeepAlive => "agent.keepalive",
             Self::Succession => "hierarchy.succession",
             Self::SwarmAnnounce => "swarm.announce",
             Self::SwarmJoin => "swarm.join",
@@ -300,6 +302,7 @@ impl ProtocolMethod {
             "task.submit_result" => Some(Self::ResultSubmission),
             "task.verification" => Some(Self::VerificationResult),
             "swarm.keepalive" => Some(Self::KeepAlive),
+            "agent.keepalive" => Some(Self::AgentKeepAlive),
             "hierarchy.succession" => Some(Self::Succession),
             "swarm.announce" => Some(Self::SwarmAnnounce),
             "swarm.join" => Some(Self::SwarmJoin),
@@ -410,6 +413,7 @@ mod tests {
             ProtocolMethod::Candidacy,
             ProtocolMethod::ConsensusVote,
             ProtocolMethod::ResultSubmission,
+            ProtocolMethod::AgentKeepAlive,
         ];
         for method in methods {
             let s = method.as_str();

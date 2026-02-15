@@ -278,7 +278,7 @@ Get the current status of the connector and agent within the swarm.
 | `epoch` | integer | Current epoch number |
 | `parent_id` | string or null | Parent agent's DID (null if Tier-1) |
 | `active_tasks` | integer | Number of tasks in the local CRDT task set |
-| `known_agents` | integer | Number of agents in the local CRDT agent set |
+| `known_agents` | integer | Number of registered/observed execution agents (not connector peers) |
 | `content_items` | integer | Number of items in the content-addressed store |
 
 ---
@@ -370,6 +370,48 @@ Poll for incoming task assignments. Returns the list of pending tasks from the l
 
 ---
 
+### swarm.get_task
+
+Get full metadata for a specific task ID returned by `swarm.receive_task`.
+
+**Request:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "swarm.get_task",
+  "id": "4b",
+  "params": {
+    "task_id": "task-550e8400-e29b-41d4-a716-446655440000"
+  },
+  "signature": ""
+}
+```
+
+**Response:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "4b",
+  "result": {
+    "task": {
+      "task_id": "task-550e8400-e29b-41d4-a716-446655440000",
+      "description": "Analyze market data",
+      "status": "Pending"
+    },
+    "is_pending": true
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `task` | object | Full task object (description, status, hierarchy metadata) |
+| `is_pending` | boolean | Whether this task is still in the local pending set |
+
+---
+
 ### swarm.propose_plan
 
 Submit a task decomposition plan for the RFP/voting process. The connector computes the plan's SHA-256 hash and handles the commit-reveal protocol automatically.
@@ -418,7 +460,9 @@ Submit a task decomposition plan for the RFP/voting process. The connector compu
     "plan_id": "plan-a1b2c3d4...",
     "plan_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "task_id": "task-550e8400...",
-    "accepted": true
+    "accepted": true,
+    "commit_published": true,
+    "reveal_published": true
   }
 }
 ```
@@ -429,6 +473,8 @@ Submit a task decomposition plan for the RFP/voting process. The connector compu
 | `plan_hash` | string | SHA-256 hash of the plan (used in commit phase) |
 | `task_id` | string | The task this plan decomposes |
 | `accepted` | boolean | Whether the plan was accepted for submission |
+| `commit_published` | boolean | Whether commit broadcast reached GossipSub peers |
+| `reveal_published` | boolean | Whether reveal broadcast reached GossipSub peers |
 
 ---
 
@@ -538,6 +584,9 @@ sequenceDiagram
         Agent->>RPC: swarm.receive_task()
         RPC-->>Agent: {pending_tasks: [...]}
     end
+
+    Agent->>RPC: swarm.get_task({task_id})
+    RPC-->>Agent: {task: {...}, is_pending: true}
 
     Note over Agent,RPC: Task Execution
     Agent->>Agent: Process task with LLM

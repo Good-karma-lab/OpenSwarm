@@ -7,28 +7,28 @@ OpenSwarm implements the **Open Swarm Protocol (OSP)** -- an open standard for a
 ## Architecture
 
 ```
-                  ┌─────────────────────────────┐
+                  ┌──────────────────────────────┐
                   │   Human / Script Operator    │
                   │   (Operator Console --console│
-                  └───────────┬─────────────────┘
+                  └───────────┬──────────────────┘
                               │ inject tasks, view hierarchy
                               ▼
-┌─────────────┐    JSON-RPC     ┌──────────────────────────────────┐
-│  AI Agent    │◄──────────────►│  Open Swarm Connector (Sidecar)  │
-│  (Any LLM)  │   localhost     │                                  │
-└─────────────┘                 │  ┌────────────┐ ┌─────────────┐  │
-       ▲                        │  │ Hierarchy   │ │ Consensus   │  │
-       │ curl SKILL.md          │  │ Manager     │ │ Engine      │  │
-       ▼                        │  └────────────┘ └─────────────┘  │
-┌─────────────┐                 │  ┌────────────┐ ┌─────────────┐  │
-│ File Server  │  HTTP :9371    │  │ State/CRDT  │ │ Merkle-DAG  │  │
-│ (Onboarding) │◄──────────────│  │ Manager     │ │ Verifier    │  │
-└─────────────┘                 │  └────────────┘ └─────────────┘  │
+┌─────────────┐    JSON-RPC     ┌───────────────────────────────────┐
+│  AI Agent   │◄───────────────►│  Open Swarm Connector (Sidecar)   │
+│  (Any LLM)  │   localhost     │                                   │
+└─────────────┘                 │  ┌────────────┐ ┌─────────────┐   │
+       ▲                        │  │ Hierarchy  │ │ Consensus   │   │
+       │ curl SKILL.md          │  │ Manager    │ │ Engine      │   │
+       ▼                        │  └────────────┘ └─────────────┘   │
+┌──────────────┐                │  ┌────────────┐ ┌─────────────┐   │
+│ File Server  │  HTTP :9371    │  │ State/CRDT │ │ Merkle-DAG  │   │
+│ (Onboarding) │◄───────────────│  │ Manager    │ │ Verifier    │   │
+└──────────────┘                │  └────────────┘ └─────────────┘   │
                                 │  ┌──────────────────────────────┐ │
                                 │  │    libp2p Network Layer      │ │
                                 │  │  (Kademlia + GossipSub)      │ │
                                 │  └──────────────────────────────┘ │
-                                └──────────────────────────────────┘
+                                └───────────────────────────────────┘
 ```
 
 The **Open Swarm Connector** is a lightweight sidecar process that runs alongside each AI agent. It handles all P2P networking, consensus, and hierarchy management, exposing:
@@ -77,18 +77,18 @@ The operator console provides an interactive TUI for human operators to manage t
 
 ```
 ╔══════════════════════════════════════════════════════════════════╗
-║ OpenSwarm Operator Console                                      ║
-║ Agent: did:swarm:12D3... | Tier: Tier1 | Epoch: 42 | Running   ║
+║ OpenSwarm Operator Console                                       ║
+║ Agent: did:swarm:12D3... | Tier: Tier1 | Epoch: 42 | Running     ║
 ╠════════════════════════════╦═════════════════════════════════════╣
-║ Agent Hierarchy            ║ Active Tasks (3)                   ║
-║                            ║ Task ID              Status        ║
-║ [Tier1] did:swarm:12.. (you)║ task-abc-123...     Active        ║
-║ ├── [Peer] did:swarm:45..  ║ task-def-456...     Active        ║
-║ ├── [Peer] did:swarm:78..  ║ task-ghi-789...     Active        ║
+║ Agent Hierarchy            ║ Active Tasks (3)                    ║
+║                            ║ Task ID              Status         ║
+║ [Tier1] did:swarm:12..(you)║ task-abc-123...      Active         ║
+║ ├── [Peer] did:swarm:45..  ║ task-def-456...      Active         ║
+║ ├── [Peer] did:swarm:78..  ║ task-ghi-789...      Active         ║
 ║ └── [Peer] did:swarm:AB..  ╠═════════════════════════════════════╣
-║                            ║ Console Output                     ║
-║                            ║ [12:34] Task injected: task-abc... ║
-║                            ║ [12:35] Connected: 12D3Koo...      ║
+║                            ║ Console Output                      ║
+║                            ║ [12:34] Task injected: task-abc...  ║
+║                            ║ [12:35] Connected: 12D3Koo...       ║
 ╠════════════════════════════╩═════════════════════════════════════╣
 ║ > Research quantum computing advances in 2025                    ║
 ╚══════════════════════════════════════════════════════════════════╝
@@ -378,4 +378,4 @@ Total:   850 agents, depth = ceil(log_10(850)) = 3
 
 ## License
 
-MIT
+Apache 2.0

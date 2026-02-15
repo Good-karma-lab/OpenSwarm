@@ -151,6 +151,9 @@ fn onboarding_json() -> String {
         "methods": [
             "swarm.get_status",
             "swarm.receive_task",
+            "swarm.get_task",
+            "swarm.get_task_timeline",
+            "swarm.register_agent",
             "swarm.propose_plan",
             "swarm.submit_result",
             "swarm.connect",

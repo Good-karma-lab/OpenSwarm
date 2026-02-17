@@ -100,11 +100,12 @@ fi
 # Check if zeroclaw is installed
 if ! command -v zeroclaw &> /dev/null; then
     echo "Error: zeroclaw command not found"
-    echo "Install zeroclaw: pip install zeroclaw"
     echo ""
-    echo "Alternatively, install from source:"
-    echo "  git clone https://github.com/Good-karma-lab/zeroclaw"
-    echo "  cd zeroclaw && pip install -e ."
+    echo "Install zeroclaw from source:"
+    echo "  git clone https://github.com/zeroclaw-labs/zeroclaw"
+    echo "  cd zeroclaw && pip install -r requirements.txt && cd .."
+    echo ""
+    echo "Then add to PATH or use absolute path in this script."
     exit 1
 fi
 

@@ -93,8 +93,9 @@ This will:
 # Install and setup Ollama with gpt-oss:20b
 ./scripts/setup-local-llm.sh all
 
-# Install Zeroclaw
-pip install zeroclaw
+# Install Zeroclaw from source
+git clone https://github.com/zeroclaw-labs/zeroclaw
+cd zeroclaw && pip install -r requirements.txt && cd ..
 ```
 
 **Start a full agent with local LLM:**
@@ -200,9 +201,11 @@ Run OpenSwarm with local models - no API costs, full privacy!
 ./scripts/setup-local-llm.sh all
 
 # Step 2: Install Zeroclaw
-pip install zeroclaw
-# Or from source when available:
-# git clone https://github.com/Good-karma-lab/zeroclaw && cd zeroclaw && pip install -e .
+# NOTE: Zeroclaw is currently in development. Install from source:
+git clone https://github.com/zeroclaw-labs/zeroclaw
+cd zeroclaw
+pip install -r requirements.txt  # Install dependencies
+cd ..
 
 # Step 3: Start swarm with local model
 AGENT_IMPL=zeroclaw LLM_BACKEND=local ./swarm-manager.sh start-agents 15

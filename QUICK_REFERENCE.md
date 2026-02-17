@@ -9,7 +9,7 @@ export ANTHROPIC_AUTH_TOKEN="sk-ant-..." && ./run-agent.sh -n "alice"
 
 ### Local AI (Ollama + gpt-oss:20b)
 ```bash
-# After setup: ./scripts/setup-local-llm.sh all && pip install zeroclaw
+# After setup (see below for Zeroclaw installation)
 AGENT_IMPL=zeroclaw LLM_BACKEND=ollama MODEL_NAME=gpt-oss:20b ./run-agent.sh -n "alice"
 ```
 
@@ -23,7 +23,10 @@ AGENT_IMPL=zeroclaw LLM_BACKEND=ollama MODEL_NAME=gpt-oss:20b ./run-agent.sh -n 
 ### Local LLM Setup (First Time)
 ```bash
 ./scripts/setup-local-llm.sh all           # Install Ollama + download gpt-oss:20b
-pip install zeroclaw                       # Install Zeroclaw agent framework
+
+# Install Zeroclaw from source (currently in development)
+git clone https://github.com/zeroclaw-labs/zeroclaw
+cd zeroclaw && pip install -r requirements.txt && cd ..
 ```
 
 ### Check Status
@@ -153,7 +156,9 @@ ollama pull gpt-oss:20b
 
 ### Zeroclaw Not Found
 ```bash
-pip install zeroclaw
+# Install from source (currently in development)
+git clone https://github.com/zeroclaw-labs/zeroclaw
+cd zeroclaw && pip install -r requirements.txt && cd ..
 ```
 
 ### Check Logs

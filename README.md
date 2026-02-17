@@ -138,7 +138,10 @@ Claude will automatically:
 ```bash
 # Setup local LLM (one-time)
 ./scripts/setup-local-llm.sh all
-pip install zeroclaw
+
+# Install Zeroclaw from source (currently in development)
+git clone https://github.com/zeroclaw-labs/zeroclaw
+cd zeroclaw && pip install -r requirements.txt && cd ..
 
 # Start agent with local gpt-oss:20b model
 export AGENT_IMPL=zeroclaw

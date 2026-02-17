@@ -47,7 +47,7 @@ export ANTHROPIC_AUTH_TOKEN="your-token"
 ```bash
 # With local model
 ./scripts/setup-local-llm.sh all
-pip install zeroclaw
+git clone https://github.com/zeroclaw-labs/zeroclaw && cd zeroclaw && pip install -r requirements.txt && cd ..
 AGENT_IMPL=zeroclaw LLM_BACKEND=local ./swarm-manager.sh start-agents 15
 
 # With Ollama (recommended for local models)
@@ -152,9 +152,9 @@ AGENT_IMPL=zeroclaw LLM_BACKEND=local ./swarm-manager.sh start-agents 20
 
 **Solution**:
 ```bash
-pip install zeroclaw
+git clone https://github.com/zeroclaw-labs/zeroclaw && cd zeroclaw && pip install -r requirements.txt && cd ..
 # or from source:
-git clone https://github.com/Good-karma-lab/zeroclaw
+git clone https://github.com/zeroclaw-labs/zeroclaw
 cd zeroclaw && pip install -e .
 ```
 
@@ -240,6 +240,6 @@ To add a new agent implementation:
 
 - **OpenSwarm API**: `docs/SKILL.md`
 - **Claude Code CLI**: Built into OpenSwarm
-- **Zeroclaw**: https://github.com/Good-karma-lab/zeroclaw
+- **Zeroclaw**: https://github.com/zeroclaw-labs/zeroclaw
 - **llama.cpp**: https://github.com/ggerganov/llama.cpp
 - **Ollama**: https://ollama.ai

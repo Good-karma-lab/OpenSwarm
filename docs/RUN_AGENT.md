@@ -23,7 +23,8 @@ This uses Claude's API via Claude Code CLI. Requires `ANTHROPIC_AUTH_TOKEN` envi
 ```bash
 # One-time setup
 ./scripts/setup-local-llm.sh all
-pip install zeroclaw
+git clone https://github.com/zeroclaw-labs/zeroclaw
+cd zeroclaw && pip install -r requirements.txt && cd ..
 
 # Start agent
 export AGENT_IMPL=zeroclaw
@@ -124,7 +125,11 @@ export ANTHROPIC_AUTH_TOKEN="your-token"
 
 **Usage:**
 ```bash
-pip install zeroclaw
+# Install Zeroclaw from source (currently in development)
+git clone https://github.com/zeroclaw-labs/zeroclaw
+cd zeroclaw && pip install -r requirements.txt && cd ..
+
+# Use with OpenSwarm
 export AGENT_IMPL=zeroclaw
 export LLM_BACKEND=ollama
 ./run-agent.sh -n "alice"
@@ -216,7 +221,8 @@ export ANTHROPIC_AUTH_TOKEN="sk-ant-..."
 ```bash
 # Complete local setup from scratch
 ./scripts/setup-local-llm.sh all
-pip install zeroclaw
+git clone https://github.com/zeroclaw-labs/zeroclaw
+cd zeroclaw && pip install -r requirements.txt && cd ..
 
 export AGENT_IMPL=zeroclaw
 export LLM_BACKEND=ollama
@@ -310,10 +316,13 @@ kill <PID>
 ### "Zeroclaw command not found"
 
 ```bash
-pip install zeroclaw
-# Or from source:
-git clone https://github.com/Good-karma-lab/zeroclaw
-cd zeroclaw && pip install -e .
+# Zeroclaw is currently in development - install from source:
+git clone https://github.com/zeroclaw-labs/zeroclaw
+cd zeroclaw
+pip install -r requirements.txt
+# Add to PATH or use absolute path
+export PATH="$PWD:$PATH"
+cd ..
 ```
 
 ### "Ollama server not running"

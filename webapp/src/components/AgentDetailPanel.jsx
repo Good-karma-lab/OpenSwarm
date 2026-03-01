@@ -8,22 +8,65 @@ function healthLabel(a) {
   return { text: 'HEALTHY', cls: 'badge-teal' }
 }
 
-function ReputationBar({ score, tasksCompleted }) {
-  const s = score || 0
-  // Color: teal once inject-eligible (≥ 5 tasks = 0.5 rep), amber if progressing, coral if new
+function mini(label, value, color) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</span>
+      <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: color || 'var(--text)' }}>{value}</span>
+    </div>
+  )
+}
+
+function ReputationBar({ agent }) {
+  const s = agent.reputation_score || 0
+
+  // Three signal contributions (approximate; backend has full formula)
+  const done = agent.tasks_processed_count || 0
+  const got  = agent.tasks_assigned_count  || 0
+  const rel  = got > 0 ? done / (got + 1) : 0
+  const sigR = done * rel * 0.10
+  const sigD = ((agent.plans_proposed_count || 0) + (agent.votes_cast_count || 0)) * 0.02
+  const sigI = Math.sqrt(agent.tasks_injected_count || 0) * 0.05
+  const total = sigR + sigD + sigI || 0.001
+
   const color = s >= 0.5 ? 'var(--teal)' : s > 0 ? '#ffaa00' : 'var(--coral)'
-  // Bar width: scale relative to inject threshold (5 tasks = 100% width base, grows beyond)
+  // Bar anchored at inject gate (0.5 = 100%); can overflow
   const barPct = Math.min(100, (s / 0.5) * 100)
+
+  // Signal bar widths proportional to contribution
+  const wR = (sigR / total) * barPct
+  const wD = (sigD / total) * barPct
+  const wI = (sigI / total) * barPct
+
   return (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Reputation</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Trust score</span>
         <span style={{ fontSize: 13, fontWeight: 700, color, fontFamily: 'var(--font-mono)' }}>
-          {s.toFixed(2)} <span style={{ fontWeight: 400, fontSize: 11 }}>({tasksCompleted ?? 0} tasks)</span>
+          {s.toFixed(2)}
         </span>
       </div>
-      <div style={{ background: 'var(--border)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
-        <div style={{ width: `${barPct}%`, background: color, height: '100%', borderRadius: 4, transition: 'width 0.4s ease' }} />
+
+      {/* Segmented bar: reliability | deliberation | ecosystem */}
+      <div style={{ background: 'var(--border)', borderRadius: 4, height: 7, overflow: 'hidden', display: 'flex', marginBottom: 6 }}>
+        <div style={{ width: `${wR}%`, background: 'var(--teal)',    height: '100%', transition: 'width 0.4s ease' }} title="Reliability" />
+        <div style={{ width: `${wD}%`, background: '#a78bfa',        height: '100%', transition: 'width 0.4s ease' }} title="Deliberation" />
+        <div style={{ width: `${wI}%`, background: '#f59e0b',        height: '100%', transition: 'width 0.4s ease' }} title="Ecosystem" />
+      </div>
+
+      {/* Signal breakdown */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 6 }}>
+        <span style={{ fontSize: 10, color: 'var(--teal)' }}>■ Reliability {sigR.toFixed(2)}</span>
+        <span style={{ fontSize: 10, color: '#a78bfa' }}>■ Deliberation {sigD.toFixed(2)}</span>
+        <span style={{ fontSize: 10, color: '#f59e0b' }}>■ Ecosystem {sigI.toFixed(2)}</span>
+      </div>
+
+      {/* Formula explanation */}
+      <div style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.7 }}>
+        <strong style={{ color: 'var(--teal)' }}>Reliability</strong> = done² / (assigned+1) × 0.10 — rewards finishing what you take<br />
+        <strong style={{ color: '#a78bfa' }}>Deliberation</strong> = (plans×honesty + votes) × 0.02 — rewards honest participation<br />
+        <strong style={{ color: '#f59e0b' }}>Ecosystem</strong> = √injected × 0.05 — rewards contributing new work<br />
+        Inject rights unlock at 5 completed tasks.
       </div>
     </div>
   )
@@ -53,11 +96,7 @@ export default function AgentDetailPanel({ agent, tasks, onTaskClick }) {
       {/* Reputation */}
       <div className="detail-section">
         <div className="detail-section-title">Reputation</div>
-        <ReputationBar score={agent.reputation_score} tasksCompleted={agent.tasks_processed_count} />
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-          Score = tasks_completed × 0.1 — grows without limit.<br />
-          Inject rights unlock at score ≥ 0.50 (5 completed tasks).
-        </div>
+        <ReputationBar agent={agent} />
       </div>
 
       {/* Stats */}
@@ -78,6 +117,7 @@ export default function AgentDetailPanel({ agent, tasks, onTaskClick }) {
             <tr><td>Plans proposed</td><td>{agent.plans_proposed_count ?? 0}</td></tr>
             <tr><td>Plans revealed</td><td>{agent.plans_revealed_count ?? 0}</td></tr>
             <tr><td>Votes cast</td><td>{agent.votes_cast_count ?? 0}</td></tr>
+            <tr><td>Tasks injected</td><td>{agent.tasks_injected_count ?? 0}</td></tr>
             <tr><td>Last poll (s)</td><td>{agent.last_task_poll_secs ?? '—'}</td></tr>
             <tr><td>Last result (s)</td><td>{agent.last_result_secs ?? '—'}</td></tr>
           </tbody>

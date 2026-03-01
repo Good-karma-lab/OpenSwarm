@@ -2071,25 +2071,28 @@ pub(crate) async fn handle_inject_task(
     let swarm_id = state_guard.current_swarm_id.as_str().to_string();
     drop(state_guard);
 
+    // Fire-and-forget: publish task + subscribe to its topics in the background.
+    // This prevents the inject RPC from blocking on swarm event loop replies under load.
     if let Ok(data) = serde_json::to_vec(&msg) {
-        let topic = SwarmTopics::tasks_for(&swarm_id, 1);
-        if let Err(e) = network_handle.publish(&topic, data).await {
-            tracing::debug!(error = %e, "Failed to publish task injection");
-        }
-
+        let nh = network_handle.clone();
+        let task_topic = SwarmTopics::tasks_for(&swarm_id, 1);
         let proposals_topic = SwarmTopics::proposals_for(&swarm_id, &task_id);
         let voting_topic = SwarmTopics::voting_for(&swarm_id, &task_id);
         let results_topic = SwarmTopics::results_for(&swarm_id, &task_id);
-
-        if let Err(e) = network_handle.subscribe(&proposals_topic).await {
-            tracing::debug!(error = %e, topic = %proposals_topic, "Failed to subscribe proposals topic");
-        }
-        if let Err(e) = network_handle.subscribe(&voting_topic).await {
-            tracing::debug!(error = %e, topic = %voting_topic, "Failed to subscribe voting topic");
-        }
-        if let Err(e) = network_handle.subscribe(&results_topic).await {
-            tracing::debug!(error = %e, topic = %results_topic, "Failed to subscribe results topic");
-        }
+        tokio::spawn(async move {
+            if let Err(e) = nh.publish(&task_topic, data).await {
+                tracing::debug!(error = %e, "Failed to publish task injection");
+            }
+            if let Err(e) = nh.subscribe(&proposals_topic).await {
+                tracing::debug!(error = %e, topic = %proposals_topic, "Failed to subscribe proposals topic");
+            }
+            if let Err(e) = nh.subscribe(&voting_topic).await {
+                tracing::debug!(error = %e, topic = %voting_topic, "Failed to subscribe voting topic");
+            }
+            if let Err(e) = nh.subscribe(&results_topic).await {
+                tracing::debug!(error = %e, topic = %results_topic, "Failed to subscribe results topic");
+            }
+        });
     }
 
     SwarmResponse::success(
@@ -2320,13 +2323,17 @@ async fn handle_send_message(
         serde_json::json!({ "from": from, "to": to, "content": content }),
         String::new(),
     );
+    // Fire-and-forget: publish in background so this RPC returns immediately under load.
     if let Ok(data) = serde_json::to_vec(&msg) {
-        if let Err(e) = network_handle.publish(&topic, data).await {
-            return SwarmResponse::error(id, -32000, format!("Failed to publish message: {}", e));
-        }
+        let nh = network_handle.clone();
+        tokio::spawn(async move {
+            if let Err(e) = nh.publish(&topic, data).await {
+                tracing::debug!(error = %e, "Failed to publish direct message");
+            }
+        });
     }
 
-    SwarmResponse::success(id, serde_json::json!({ "sent": true, "to": to }))
+    SwarmResponse::success(id, serde_json::json!({ "ok": true, "sent": true, "to": to }))
 }
 
 /// Handle `swarm.get_messages` - retrieve all messages in the inbox.

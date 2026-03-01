@@ -29,6 +29,7 @@ export default function App() {
   const [taskTrace, setTaskTrace]       = useState({ timeline: [], descendants: [], messages: [] })
   const [taskVoting, setTaskVoting]     = useState({ voting: [], rfp: [] })
   const [taskBallots, setTaskBallots]   = useState({ ballots: [], irv_rounds: [] })
+  const [taskHolon, setTaskHolon]       = useState(null) // holon detail for selected task
 
   // ── UI state ───────────────────────────
   const [panel, setPanel]               = useState(null) // { type, data }
@@ -99,15 +100,17 @@ export default function App() {
     const effectiveTaskId = (requestedTaskId || taskId || '').trim()
     if (!effectiveTaskId) return
     setTaskId(effectiveTaskId)
-    const [trace, votingDetail, ballots, irvData] = await Promise.all([
+    const [trace, votingDetail, ballots, irvData, holon] = await Promise.all([
       api.taskTimeline(effectiveTaskId),
       api.votingTask(effectiveTaskId),
       api.taskBallots(effectiveTaskId).catch(() => ({ ballots: [] })),
       api.taskIrvRounds(effectiveTaskId).catch(() => ({ irv_rounds: [] })),
+      api.holonDetail(effectiveTaskId).catch(() => null),
     ])
     setTaskTrace(trace)
     setTaskVoting(votingDetail)
     setTaskBallots({ ...ballots, irv_rounds: irvData.irv_rounds || [] })
+    setTaskHolon(holon?.task_id ? holon : null)
   }, [taskId])
 
   // ── Panel helpers ──────────────────────
@@ -129,7 +132,7 @@ export default function App() {
     if (type === 'holon') openHolonPanel(data)
   }
 
-  const closePanel = () => setPanel(null)
+  const closePanel = () => { setPanel(null); setTaskHolon(null) }
 
   // ── Render ─────────────────────────────
   return (
@@ -148,6 +151,7 @@ export default function App() {
         holons={holons}
         agents={agents}
         onNodeClick={handleGraphNodeClick}
+        taskHolon={panel?.type === 'task' ? taskHolon : null}
       />
 
       <BottomTray

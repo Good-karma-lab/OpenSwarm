@@ -700,8 +700,32 @@ async fn api_agents(State(web): State<WebState>) -> Json<serde_json::Value> {
 
             let activity = s.agent_activity.get(&id);
             let tasks_processed = activity.map(|a| a.tasks_processed_count).unwrap_or(0);
-            // Reputation grows without limit: each completed task adds 0.1
-            let reputation_score = (tasks_processed as f64 * 0.1 * 100.0).round() / 100.0;
+
+            // ── Multi-signal reputation (FIRE-inspired) ──────────────────────
+            // Signal 1: Reliability — tasks completed relative to tasks taken.
+            //   Uses Laplace smoothing (ε=1) so new agents start at ~0 instead
+            //   of undefined. The product tasks_done * reliability makes this
+            //   quadratic in completions: reliable agents grow faster.
+            let tasks_done = tasks_processed as f64;
+            let tasks_got  = activity.map(|a| a.tasks_assigned_count).unwrap_or(0) as f64;
+            let reliability = tasks_done / (tasks_got + 1.0);       // ∈ [0, tasks_done)
+            let signal_reliability = tasks_done * reliability * 0.10; // primary signal
+
+            // Signal 2: Deliberation honesty — did agent reveal plans they committed?
+            //   plans_revealed / (plans_proposed + ε) measures commit-reveal follow-through.
+            let proposed  = activity.map(|a| a.plans_proposed_count).unwrap_or(0) as f64;
+            let revealed  = activity.map(|a| a.plans_revealed_count).unwrap_or(0) as f64;
+            let votes     = activity.map(|a| a.votes_cast_count).unwrap_or(0) as f64;
+            let reveal_honesty = revealed / (proposed + 1.0);        // ∈ [0,1]
+            let signal_deliberation = (proposed * reveal_honesty + votes) * 0.02;
+
+            // Signal 3: Ecosystem growth — injecting tasks contributes to the swarm.
+            //   Square-root decay: injecting 100 tasks is not 100× better than 10.
+            let injected = activity.map(|a| a.tasks_injected_count).unwrap_or(0) as f64;
+            let signal_injection = injected.sqrt() * 0.05;
+
+            let raw = signal_reliability + signal_deliberation + signal_injection;
+            let reputation_score = (raw * 100.0).round() / 100.0;
             let can_inject_tasks = id == s.agent_id.to_string() || tasks_processed >= 5;
             // The self-agent is always connected — GossipSub doesn't echo messages
             // back to the sender, so seen_secs is unreliable for the local agent.
@@ -721,6 +745,7 @@ async fn api_agents(State(web): State<WebState>) -> Json<serde_json::Value> {
                 "plans_proposed_count": activity.map(|a| a.plans_proposed_count).unwrap_or(0),
                 "plans_revealed_count": activity.map(|a| a.plans_revealed_count).unwrap_or(0),
                 "votes_cast_count": activity.map(|a| a.votes_cast_count).unwrap_or(0),
+                "tasks_injected_count": activity.map(|a| a.tasks_injected_count).unwrap_or(0),
                 "reputation_score": reputation_score,
                 "can_inject_tasks": can_inject_tasks,
                 "is_self": is_self,
@@ -984,21 +1009,49 @@ async fn api_holon_detail(
 ) -> impl IntoResponse {
     let state = s.state.read().await;
     match state.active_holons.get(&task_id) {
-        Some(h) => Json(serde_json::json!({
-            "task_id": h.task_id,
-            "chair": h.chair.to_string(),
-            "members": h.members.iter().map(|m| m.to_string()).collect::<Vec<_>>(),
-            "adversarial_critic": h.adversarial_critic.as_ref().map(|a| a.to_string()),
-            "depth": h.depth,
-            "parent_holon": h.parent_holon,
-            "child_holons": h.child_holons,
-            "subtask_assignments": h.subtask_assignments.iter()
-                .map(|(k, v)| (k.clone(), v.to_string()))
-                .collect::<std::collections::HashMap<_, _>>(),
-            "status": format!("{:?}", h.status),
-            "created_at": h.created_at,
-        })).into_response(),
-        None => Json(serde_json::json!({"task_id": task_id, "members": [], "status": "none"})).into_response(),
+        Some(h) => {
+            let chair_str = h.chair.to_string();
+            let critic_str = h.adversarial_critic.as_ref().map(|a| a.to_string());
+            let executor_ids: std::collections::HashSet<String> = h.subtask_assignments
+                .values()
+                .map(|a| a.to_string())
+                .collect();
+
+            // Annotate each member with their role in this holon.
+            let members_detail: Vec<serde_json::Value> = h.members.iter().map(|m| {
+                let id = m.to_string();
+                let role = if id == chair_str {
+                    "chair"
+                } else if critic_str.as_deref() == Some(id.as_str()) {
+                    "critic"
+                } else if executor_ids.contains(&id) {
+                    "executor"
+                } else {
+                    "member"
+                };
+                let name = state.agent_names.get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| id.chars().rev().take(8).collect::<String>().chars().rev().collect());
+                serde_json::json!({ "agent_id": id, "name": name, "role": role })
+            }).collect();
+
+            Json(serde_json::json!({
+                "task_id": h.task_id,
+                "chair": chair_str,
+                "members": h.members.iter().map(|m| m.to_string()).collect::<Vec<_>>(),
+                "members_detail": members_detail,
+                "adversarial_critic": critic_str,
+                "depth": h.depth,
+                "parent_holon": h.parent_holon,
+                "child_holons": h.child_holons,
+                "subtask_assignments": h.subtask_assignments.iter()
+                    .map(|(k, v)| (k.clone(), v.to_string()))
+                    .collect::<std::collections::HashMap<_, _>>(),
+                "status": format!("{:?}", h.status),
+                "created_at": h.created_at,
+            })).into_response()
+        },
+        None => Json(serde_json::json!({"task_id": task_id, "members": [], "members_detail": [], "status": "none"})).into_response(),
     }
 }
 

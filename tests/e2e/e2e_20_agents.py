@@ -65,7 +65,7 @@ def http_get(url, timeout=10):
         return {"error": str(e)}
 
 
-def http_post(url, body, timeout=15):
+def http_post(url, body, timeout=60):
     try:
         data = json.dumps(body).encode()
         req = urllib.request.Request(url, data=data,
@@ -126,30 +126,13 @@ class Agent:
         return bool(self.connector_did)
 
     def register(self):
-        """Solve PoW and register with the swarm."""
-        log(self.name, "requesting PoW challenge...")
-        ch = self._r("swarm.get_pow_challenge", {})
-        challenge = ch.get("result", {}).get("challenge", "")
-        if not challenge:
-            log(self.name, f"⚠ no challenge: {ch}")
-            # Try direct registration (some builds skip PoW)
-            r = self._r("swarm.register_agent", {
-                "agent_name": self.name,
-                "agent_id": self.name,
-                "capabilities": ["deliberation", "analysis", "coding"],
-                "pow_nonce": 0,
-            })
-        else:
-            log(self.name, f"solving PoW (challenge={challenge[:16]}...)...")
-            nonce = solve_pow(challenge, difficulty=24)
-            log(self.name, f"PoW solved (nonce={nonce})")
-            r = self._r("swarm.register_agent", {
-                "agent_name": self.name,
-                "agent_id": self.name,
-                "capabilities": ["deliberation", "analysis", "coding"],
-                "pow_nonce": nonce,
-                "pow_challenge": challenge,
-            })
+        """Register with the swarm. The connector assigns a canonical DID."""
+        log(self.name, "registering with swarm...")
+        r = self._r("swarm.register_agent", {
+            "agent_name": self.name,
+            "agent_id": self.name,
+            "capabilities": ["deliberation", "analysis", "coding"],
+        })
         result = r.get("result", {})
         self.agent_id = result.get("agent_id") or self.name
         if "error" in r:

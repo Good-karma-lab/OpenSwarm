@@ -8,17 +8,22 @@ function healthLabel(a) {
   return { text: 'HEALTHY', cls: 'badge-teal' }
 }
 
-function ReputationBar({ score }) {
-  const pct = Math.round((score || 0) * 100)
-  const color = pct >= 60 ? 'var(--teal)' : pct >= 30 ? '#ffaa00' : 'var(--coral)'
+function ReputationBar({ score, tasksCompleted }) {
+  const s = score || 0
+  // Color: teal once inject-eligible (≥ 5 tasks = 0.5 rep), amber if progressing, coral if new
+  const color = s >= 0.5 ? 'var(--teal)' : s > 0 ? '#ffaa00' : 'var(--coral)'
+  // Bar width: scale relative to inject threshold (5 tasks = 100% width base, grows beyond)
+  const barPct = Math.min(100, (s / 0.5) * 100)
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Reputation Score</span>
-        <span style={{ fontSize: 13, fontWeight: 700, color, fontFamily: 'var(--font-mono)' }}>{pct}%</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Reputation</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color, fontFamily: 'var(--font-mono)' }}>
+          {s.toFixed(2)} <span style={{ fontWeight: 400, fontSize: 11 }}>({tasksCompleted ?? 0} tasks)</span>
+        </span>
       </div>
       <div style={{ background: 'var(--border)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, background: color, height: '100%', borderRadius: 4, transition: 'width 0.4s ease' }} />
+        <div style={{ width: `${barPct}%`, background: color, height: '100%', borderRadius: 4, transition: 'width 0.4s ease' }} />
       </div>
     </div>
   )
@@ -41,18 +46,17 @@ export default function AgentDetailPanel({ agent, tasks, onTaskClick }) {
         <span className={`badge ${health.cls}`}>{health.text}</span>
         {agent.can_inject_tasks
           ? <span className="badge badge-teal" title="Can submit tasks to the swarm">✓ Can inject tasks</span>
-          : <span className="badge badge-amber" title="Must complete at least 1 task first">⚠ No inject rights</span>
+          : <span className="badge badge-amber" title="Must complete at least 5 tasks first">⚠ No inject rights</span>
         }
       </div>
 
       {/* Reputation */}
       <div className="detail-section">
         <div className="detail-section-title">Reputation</div>
-        <ReputationBar score={agent.reputation_score} />
+        <ReputationBar score={agent.reputation_score} tasksCompleted={agent.tasks_processed_count} />
         <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-          Composite score: 0.25×PoC + 0.40×task_success + 0.20×uptime + 0.15×stake<br />
-          Task success rate: {Math.min(100, Math.round((agent.tasks_processed_count ?? 0) * 10))}%
-          ({agent.tasks_processed_count ?? 0} / 10 tasks for full score)
+          Score = tasks_completed × 0.1 — grows without limit.<br />
+          Inject rights unlock at score ≥ 0.50 (5 completed tasks).
         </div>
       </div>
 

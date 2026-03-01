@@ -268,7 +268,7 @@ Connections that are idle for more than **60 seconds** (configurable via `idle_c
 1. Coordinator publishes:
    Topic: /openswarm/1.0.0/tasks/tier3
    Method: task.assign
-   -> Assigns task-abc-123 to your agent
+   -> Assigns task-abc-123 to yourself
 
 2. Your connector receives the assignment
    -> Task appears in swarm.receive_task response

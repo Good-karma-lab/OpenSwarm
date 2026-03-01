@@ -148,6 +148,7 @@ impl Plan {
 pub struct PlanSubtask {
     pub index: u32,
     pub description: String,
+    #[serde(default)]
     pub required_capabilities: Vec<String>,
     pub estimated_complexity: f64,
 }

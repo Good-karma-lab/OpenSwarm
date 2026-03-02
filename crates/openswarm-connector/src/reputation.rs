@@ -176,7 +176,6 @@ impl RepEventType {
                 | Self::ReplayAttackDetected
                 | Self::RpcRateLimitExceeded
                 | Self::SybilFlood
-                | Self::NameSquatting
                 | Self::WildlyOffCritique
                 | Self::MissingKeepalive
         )

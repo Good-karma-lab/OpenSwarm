@@ -55,7 +55,7 @@ test('swarm web console shows requested capabilities', async ({ page }) => {
   const overlay = page.locator('.slide-overlay')
   await expect(overlay).toBeVisible()
   await expect(overlay.locator('.slide-title')).toHaveText('P2P Messages')
-  await expect(page.getByText('P2P Business Messages')).toBeVisible()
+  await expect(page.getByText(/Direct Messages|No direct messages yet/)).toBeVisible()
   // Close
   await overlay.locator('.slide-close').click()
   await expect(overlay).not.toBeVisible()

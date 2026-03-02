@@ -2422,8 +2422,9 @@ async fn handle_get_reputation_events(
     let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
     let s = state.read().await;
     let target = if did.is_empty() { s.agent_id.to_string() } else { did };
-    let events: Vec<serde_json::Value> = s.reputation_ledgers
-        .get(&target)
+    let ledger = s.reputation_ledgers.get(&target);
+    let total = ledger.map(|l| l.events.len()).unwrap_or(0);
+    let events: Vec<serde_json::Value> = ledger
         .map(|l| {
             l.events.iter().rev().skip(offset).take(limit)
                 .map(|e| serde_json::json!({
@@ -2437,7 +2438,6 @@ async fn handle_get_reputation_events(
                 .collect()
         })
         .unwrap_or_default();
-    let total = events.len();
     SwarmResponse::success(id, serde_json::json!({ "events": events, "total": total }))
 }
 

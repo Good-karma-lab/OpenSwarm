@@ -23,6 +23,8 @@
 //! - `swarm.create_receipt()` - Create a commitment receipt at task start
 //! - `swarm.fulfill_receipt()` - Agent proposes fulfillment + posts evidence_hash
 //! - `swarm.verify_receipt()` - External verifier confirms or disputes receipt
+//! - `swarm.request_clarification()` - Agent requests clarification from principal
+//! - `swarm.resolve_clarification()` - Principal resolves a clarification request
 //!
 //! The server listens on localhost TCP and speaks JSON-RPC 2.0.
 //! Each line received is a JSON-RPC request; each line sent is a response.
@@ -244,6 +246,8 @@ async fn process_request(
         "swarm.create_receipt" => handle_create_receipt(request_id, &request.params, state).await,
         "swarm.fulfill_receipt" => handle_fulfill_receipt(request_id, &request.params, state).await,
         "swarm.verify_receipt" => handle_verify_receipt(request_id, &request.params, state).await,
+        "swarm.request_clarification" => handle_request_clarification(request_id, &request.params, state).await,
+        "swarm.resolve_clarification" => handle_resolve_clarification(request_id, &request.params, state).await,
         _ => SwarmResponse::error(
             request_id,
             -32601, // Method not found
@@ -2008,6 +2012,31 @@ pub(crate) async fn handle_inject_task(
         }
     }
 
+    // Budget enforcement (Moltbook insight #19)
+    {
+        let injector_id = injector_agent_id.as_deref().unwrap_or("").to_string();
+        let s = state.read().await;
+        let concurrent = s.principal_active_injection_count(&injector_id);
+        if concurrent >= crate::connector::MAX_CONCURRENT_INJECTIONS {
+            return SwarmResponse::error(
+                id,
+                -32007,
+                format!("Budget exceeded: {} concurrent active tasks (max {}). Retry when some complete.",
+                    concurrent, crate::connector::MAX_CONCURRENT_INJECTIONS),
+            );
+        }
+        let blast = s.principal_blast_radius(&injector_id);
+        if blast >= crate::connector::MAX_BLAST_RADIUS {
+            return SwarmResponse::error(
+                id,
+                -32008,
+                format!("Blast radius budget exceeded: {} points (max {}). Close or verify pending receipts first.",
+                    blast, crate::connector::MAX_BLAST_RADIUS),
+            );
+        }
+    }
+
+
     let mut state_guard = state.write().await;
     let epoch = state_guard.epoch_manager.current_epoch();
     let mut task = openswarm_protocol::Task::new(description.clone(), 1, epoch);
@@ -2856,6 +2885,68 @@ async fn handle_verify_receipt(
     }
 }
 
+/// Handle `swarm.request_clarification` — agent requests clarification from task principal.
+async fn handle_request_clarification(
+    id: Option<String>,
+    params: &serde_json::Value,
+    state: &Arc<RwLock<ConnectorState>>,
+) -> SwarmResponse {
+    let task_id = match params.get("task_id").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return SwarmResponse::error(id, -32602, "Missing 'task_id'".into()),
+    };
+    let requesting_agent = params.get("requesting_agent")
+        .and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let principal_id = params.get("principal_id")
+        .and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let question = match params.get("question").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return SwarmResponse::error(id, -32602, "Missing 'question'".into()),
+    };
+
+    let cr = openswarm_protocol::ClarificationRequest {
+        id: uuid::Uuid::new_v4().to_string(),
+        task_id,
+        requesting_agent,
+        principal_id,
+        question,
+        resolution: None,
+        created_at: chrono::Utc::now(),
+        resolved_at: None,
+    };
+    let clar_id = cr.id.clone();
+    let mut s = state.write().await;
+    s.clarifications.insert(clar_id.clone(), cr);
+    SwarmResponse::success(id, serde_json::json!({ "clarification_id": clar_id, "ok": true }))
+}
+
+/// Handle `swarm.resolve_clarification` — principal posts an answer to a clarification.
+async fn handle_resolve_clarification(
+    id: Option<String>,
+    params: &serde_json::Value,
+    state: &Arc<RwLock<ConnectorState>>,
+) -> SwarmResponse {
+    let clar_id = match params.get("clarification_id").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return SwarmResponse::error(id, -32602, "Missing 'clarification_id'".into()),
+    };
+    let resolution = match params.get("resolution").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return SwarmResponse::error(id, -32602, "Missing 'resolution'".into()),
+    };
+
+    let mut s = state.write().await;
+    match s.clarifications.get_mut(&clar_id) {
+        Some(cr) if cr.resolution.is_none() => {
+            cr.resolution = Some(resolution);
+            cr.resolved_at = Some(chrono::Utc::now());
+            SwarmResponse::success(id, serde_json::json!({ "ok": true }))
+        }
+        Some(_) => SwarmResponse::error(id, -32600, "Clarification already resolved".into()),
+        None => SwarmResponse::error(id, -32602, format!("Clarification '{}' not found", clar_id)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3023,5 +3114,61 @@ mod tests {
         // Try to fulfill again (wrong state — already AgentFulfilled)
         let resp = handle_fulfill_receipt(Some("3".into()), &fulfill_params, &state).await;
         assert!(resp.error.is_some(), "double-fulfill should return error");
+    }
+
+    #[tokio::test]
+    async fn test_request_clarification_stored() {
+        let state = Arc::new(RwLock::new(ConnectorState::new_for_test()));
+        let params = serde_json::json!({
+            "task_id": "t1",
+            "requesting_agent": "alice",
+            "principal_id": "bob",
+            "question": "Which output format?"
+        });
+        let resp = handle_request_clarification(Some("1".into()), &params, &state).await;
+        assert!(resp.result.is_some());
+        let clar_id = resp.result.as_ref().unwrap()["clarification_id"].as_str().unwrap().to_string();
+        let s = state.read().await;
+        assert!(s.clarifications.contains_key(&clar_id));
+        assert!(s.clarifications[&clar_id].resolution.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_clarification_updates_resolution() {
+        let state = Arc::new(RwLock::new(ConnectorState::new_for_test()));
+        let req_params = serde_json::json!({
+            "task_id": "t1", "requesting_agent": "alice",
+            "principal_id": "bob", "question": "Format?"
+        });
+        let resp = handle_request_clarification(Some("1".into()), &req_params, &state).await;
+        let clar_id = resp.result.as_ref().unwrap()["clarification_id"].as_str().unwrap().to_string();
+        let res_params = serde_json::json!({
+            "clarification_id": clar_id.clone(),
+            "resolution": "Use JSON Lines format."
+        });
+        let resp2 = handle_resolve_clarification(Some("2".into()), &res_params, &state).await;
+        assert!(resp2.error.is_none());
+        let s = state.read().await;
+        assert!(s.clarifications[&clar_id].resolution.is_some());
+        assert!(s.clarifications[&clar_id].resolved_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_resolve_clarification_already_resolved_error() {
+        let state = Arc::new(RwLock::new(ConnectorState::new_for_test()));
+        let req_params = serde_json::json!({
+            "task_id": "t1", "requesting_agent": "alice",
+            "principal_id": "bob", "question": "Format?"
+        });
+        let resp = handle_request_clarification(Some("1".into()), &req_params, &state).await;
+        let clar_id = resp.result.as_ref().unwrap()["clarification_id"].as_str().unwrap().to_string();
+        let res_params = serde_json::json!({
+            "clarification_id": clar_id.clone(),
+            "resolution": "First answer."
+        });
+        handle_resolve_clarification(Some("2".into()), &res_params, &state).await;
+        // Try to resolve again
+        let resp2 = handle_resolve_clarification(Some("3".into()), &res_params, &state).await;
+        assert!(resp2.error.is_some(), "double-resolve should return error");
     }
 }

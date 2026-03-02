@@ -17,6 +17,9 @@
 //! - `swarm.resolve_name()` - Resolve a name to a DID
 //! - `swarm.send_message()` - Send a direct message to another agent
 //! - `swarm.get_messages()` - Retrieve inbox messages
+//! - `swarm.get_reputation()` - Get reputation scores for an agent
+//! - `swarm.get_reputation_events()` - Get paginated reputation event history
+//! - `swarm.submit_reputation_event()` - Submit an observer-weighted reputation event
 //!
 //! The server listens on localhost TCP and speaks JSON-RPC 2.0.
 //! Each line received is a JSON-RPC request; each line sent is a response.
@@ -210,6 +213,15 @@ async fn process_request(
         }
         "swarm.get_messages" => {
             handle_get_messages(request_id, state).await
+        }
+        "swarm.get_reputation" => {
+            handle_get_reputation(request_id, &request.params, state).await
+        }
+        "swarm.get_reputation_events" => {
+            handle_get_reputation_events(request_id, &request.params, state).await
+        }
+        "swarm.submit_reputation_event" => {
+            handle_submit_reputation_event(request_id, &request.params, state).await
         }
         _ => SwarmResponse::error(
             request_id,
@@ -2356,4 +2368,154 @@ async fn handle_get_messages(
         })
         .collect();
     SwarmResponse::success(id, serde_json::json!({ "messages": messages, "count": messages.len() }))
+}
+
+/// Handle `swarm.get_reputation` - get reputation scores for an agent.
+///
+/// Optional param: `did` (agent DID). Defaults to the local agent.
+async fn handle_get_reputation(
+    id: Option<String>,
+    params: &serde_json::Value,
+    state: &Arc<RwLock<ConnectorState>>,
+) -> SwarmResponse {
+    let did = params.get("did")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let s = state.read().await;
+    let target = if did.is_empty() { s.agent_id.to_string() } else { did };
+    let ledger = s.reputation_ledgers.get(&target);
+    let (raw, effective, peak, tier, events_count, last_active) = match ledger {
+        Some(l) => {
+            let eff = l.effective_score();
+            (l.raw_score, eff, l.peak_score,
+             l.tier().as_str().to_string(),
+             l.events.len(),
+             l.last_active.to_rfc3339())
+        }
+        None => (0, 0, 0, "Newcomer".to_string(), 0, chrono::Utc::now().to_rfc3339()),
+    };
+    SwarmResponse::success(id, serde_json::json!({
+        "did": target,
+        "raw_score": raw,
+        "effective_score": effective,
+        "peak_score": peak,
+        "tier": tier,
+        "events_count": events_count,
+        "last_active": last_active,
+    }))
+}
+
+/// Handle `swarm.get_reputation_events` - get paginated reputation event history.
+///
+/// Optional params: `did`, `limit` (default 20), `offset` (default 0).
+async fn handle_get_reputation_events(
+    id: Option<String>,
+    params: &serde_json::Value,
+    state: &Arc<RwLock<ConnectorState>>,
+) -> SwarmResponse {
+    let did = params.get("did")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+    let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let s = state.read().await;
+    let target = if did.is_empty() { s.agent_id.to_string() } else { did };
+    let events: Vec<serde_json::Value> = s.reputation_ledgers
+        .get(&target)
+        .map(|l| {
+            l.events.iter().rev().skip(offset).take(limit)
+                .map(|e| serde_json::json!({
+                    "event_type": format!("{:?}", e.event_type),
+                    "base_points": e.base_points,
+                    "effective_points": e.effective_points,
+                    "observer": e.observer,
+                    "task_id": e.task_id,
+                    "timestamp": e.timestamp.to_rfc3339(),
+                }))
+                .collect()
+        })
+        .unwrap_or_default();
+    let total = events.len();
+    SwarmResponse::success(id, serde_json::json!({ "events": events, "total": total }))
+}
+
+/// Handle `swarm.submit_reputation_event` - submit an observer-weighted reputation event.
+///
+/// Required params: `submitter_did`, `target_did`, `event_type`.
+/// Optional params: `task_id`, `evidence`.
+/// Submitter must have Member tier (score >= 100) and pass rate limiting.
+async fn handle_submit_reputation_event(
+    id: Option<String>,
+    params: &serde_json::Value,
+    state: &Arc<RwLock<ConnectorState>>,
+) -> SwarmResponse {
+    use crate::reputation::{RepEvent, RepEventType, observer_weighted_points};
+
+    let submitter = params.get("submitter_did")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let target_did = params.get("target_did")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let event_type_str = params.get("event_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let task_id = params.get("task_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let evidence = params.get("evidence")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    if target_did.is_empty() {
+        return SwarmResponse::error(id, -32602, "missing target_did".to_string());
+    }
+
+    let mut s = state.write().await;
+
+    // Submitter needs Member tier (score >= 100) to submit events
+    let submitter_score = s.reputation_ledgers
+        .get(&submitter)
+        .map(|l| l.effective_score())
+        .unwrap_or(0);
+    if submitter_score < 100 {
+        return SwarmResponse::error(id, -32603, "insufficient reputation to submit events".to_string());
+    }
+
+    // Rate limit: max 20 per hour per submitter
+    if !s.check_rep_event_rate_limit(&submitter) {
+        return SwarmResponse::error(id, -32604, "reputation event rate limit exceeded".to_string());
+    }
+
+    // Parse event type (only allow subjective positive events from external submitters)
+    let event_type = match event_type_str.as_str() {
+        "HighQualityResult" => RepEventType::HighQualityResult,
+        "HelpedNewAgent" => RepEventType::HelpedNewAgent,
+        _ => return SwarmResponse::error(id, -32602, "unsupported event_type for external submission".to_string()),
+    };
+
+    let base = event_type.base_points();
+    let is_obj = event_type.is_objective();
+    let effective = observer_weighted_points(base, submitter_score, is_obj);
+
+    let event = RepEvent {
+        event_type,
+        base_points: base,
+        observer: submitter.clone(),
+        observer_score: submitter_score,
+        effective_points: effective,
+        task_id,
+        timestamp: chrono::Utc::now(),
+        evidence,
+    };
+
+    let ledger = s.reputation_ledgers.entry(target_did.clone()).or_default();
+    ledger.apply_event(event);
+
+    SwarmResponse::success(id, serde_json::json!({ "accepted": true, "effective_points": effective }))
 }

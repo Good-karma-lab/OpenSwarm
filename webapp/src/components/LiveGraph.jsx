@@ -160,7 +160,7 @@ export default function LiveGraph({ topology, holons, agents, onNodeClick, taskH
         layout: { improvedLayout: true },
       }
 
-      if (net.current) net.current.destroy()
+      if (net.current) { net.current.destroy(); net.current = null }
       net.current = new Network(ref.current, { nodes: new DataSet(nodes), edges: new DataSet(edges) }, options)
       net.current.on('click', (params) => {
         if (params.nodes.length > 0 && onNodeClick) {
@@ -175,9 +175,9 @@ export default function LiveGraph({ topology, holons, agents, onNodeClick, taskH
           }
         }
       })
-      return () => { if (net.current) net.current.destroy() }
+      return () => { if (net.current) { net.current.destroy(); net.current = null } }
     }
-  }, [topology, holons, agents, taskHolon])
+  }, [topology, holons, agents, taskHolon, paused])
 
   useEffect(() => {
     if (net.current) {

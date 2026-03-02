@@ -10,6 +10,14 @@ const easeOut   = t => 1 - (1 - t) * (1 - t)
 const easeInOut = t => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
 const lerp      = (a, b, t) => a + (b - a) * t
 
+function hashId(str) {
+  let h = 0
+  for (let i = 0; i < str.length; i++) {
+    h = (Math.imul(31, h) + str.charCodeAt(i)) >>> 0
+  }
+  return (h >>> 0) / 0xFFFFFFFF
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function buildStars(W, H) {
   const arr = []
@@ -108,9 +116,9 @@ function buildNodes(W, H, apiAgents, apiHolons, apiTopology) {
   fgSrc.forEach((tn, i) => {
     const agent = agentMap[tn.id] || {}
     const isSelf = tn.is_self || false
-    const jitter = isSelf ? 0 : (Math.random() - 0.5) * 0.18
+    const jitter = isSelf ? 0 : (hashId(tn.id + 'j') - 0.5) * 0.18
     const ang = (i / Math.max(FG_COUNT, 1)) * Math.PI * 2 - Math.PI * 0.5 + jitter
-    const rJitter = isSelf ? 0 : (Math.random() - 0.5) * fgRadius * 0.12
+    const rJitter = isSelf ? 0 : (hashId(tn.id + 'r') - 0.5) * fgRadius * 0.12
     const r = fgRadius + rJitter
     const name = tn.name || agent.name || (tn.id || '').slice(-12)
     nodes.push({
@@ -120,15 +128,15 @@ function buildNodes(W, H, apiAgents, apiHolons, apiTopology) {
       ox: cx + Math.cos(ang) * r,
       oy: cy + Math.sin(ang) * r,
       x: cx, y: cy,
-      phase: Math.random() * Math.PI * 2,
-      freq: 0.00032 + Math.random() * 0.00020,
-      size: isSelf ? 11 : 5.5 + Math.random() * 3.0,
-      brightness: isSelf ? 1.0 : 0.75 + Math.random() * 0.25,
-      pulseFreq: 0.0008 + Math.random() * 0.0008,
-      pulsePhase: Math.random() * Math.PI * 2,
+      phase: hashId(tn.id + 'ph') * Math.PI * 2,
+      freq: 0.00032 + hashId(tn.id + 'fq') * 0.00020,
+      size: isSelf ? 11 : 5.5 + hashId(tn.id + 'sz') * 3.0,
+      brightness: isSelf ? 1.0 : 0.75 + hashId(tn.id + 'br') * 0.25,
+      pulseFreq: 0.0008 + hashId(tn.id + 'pf') * 0.0008,
+      pulsePhase: hashId(tn.id + 'pp') * Math.PI * 2,
       pulse: 1,
       depth: 1.0,
-      spawnAt: isSelf ? 0.05 : 0.08 + (i / Math.max(FG_COUNT, 1)) * 0.60 + (Math.random() - 0.5) * 0.04,
+      spawnAt: isSelf ? 0.05 : 0.08 + (i / Math.max(FG_COUNT, 1)) * 0.60 + (hashId(tn.id + 'sp') - 0.5) * 0.04,
       born: false,
       bornAlpha: 0,
       labelAlpha: 0,
@@ -144,8 +152,8 @@ function buildNodes(W, H, apiAgents, apiHolons, apiTopology) {
     const ring  = Math.floor(i / 12)
     const maxR  = Math.max(1, Math.floor(bgSrc.length / 12))
     const baseR = ((ring + 0.5) / (maxR + 1)) * Math.min(W, H) * 0.22
-    const ang   = (i % 12) * (Math.PI * 2 / 12) + ring * 0.6 + (Math.random() - 0.5) * 0.9
-    const r     = baseR + (Math.random() - 0.5) * baseR * 0.45
+    const ang   = (i % 12) * (Math.PI * 2 / 12) + ring * 0.6 + (hashId(h.task_id + 'a') - 0.5) * 0.9
+    const r     = baseR + (hashId(h.task_id + 'r') - 0.5) * baseR * 0.45
     nodes.push({
       id: `holon:${h.task_id}`,
       type: 'holon',
@@ -153,15 +161,15 @@ function buildNodes(W, H, apiAgents, apiHolons, apiTopology) {
       ox: cx + Math.cos(ang) * r,
       oy: cy + Math.sin(ang) * r,
       x: cx, y: cy,
-      phase: Math.random() * Math.PI * 2,
-      freq: 0.00040 + Math.random() * 0.00030,
-      size: 2.0 + Math.random() * 3.0,
-      brightness: 0.35 + Math.random() * 0.35,
-      pulseFreq: 0.0009 + Math.random() * 0.0010,
-      pulsePhase: Math.random() * Math.PI * 2,
+      phase: hashId(h.task_id + 'ph') * Math.PI * 2,
+      freq: 0.00040 + hashId(h.task_id + 'fq') * 0.00030,
+      size: 2.0 + hashId(h.task_id + 'sz') * 3.0,
+      brightness: 0.35 + hashId(h.task_id + 'br') * 0.35,
+      pulseFreq: 0.0009 + hashId(h.task_id + 'pf') * 0.0010,
+      pulsePhase: hashId(h.task_id + 'pp') * Math.PI * 2,
       pulse: 1,
       depth: 0.3 + Math.random() * 0.5,
-      spawnAt: 0.12 + (i / Math.max(bgSrc.length, 1)) * 0.80 + (Math.random() - 0.5) * 0.04,
+      spawnAt: 0.12 + (i / Math.max(bgSrc.length, 1)) * 0.80 + (hashId(h.task_id + 'sp') - 0.5) * 0.04,
       born: false,
       bornAlpha: 0,
       labelAlpha: 0,
@@ -390,7 +398,7 @@ export default function CosmicCanvas({ agents, holons, topology, onNodeClick }) 
       }
     }
 
-    function drawLabels(labelP) {
+    function drawLabels(labelP, rotAngle) {
       if (labelP <= 0) return
       const FS    = 11
       const PAD_X = 7
@@ -402,8 +410,11 @@ export default function CosmicCanvas({ agents, holons, topology, onNodeClick }) 
         const la = (n.isSelf ? 1 : n.labelAlpha) * labelP
         if (la < 0.03) continue
 
-        const sx = (n.x - cx) * cameraZoom + cx
-        const sy = (n.y - cy) * cameraZoom + cy
+        const dx = (n.x - cx) * cameraZoom
+        const dy = (n.y - cy) * cameraZoom
+        const cosA = Math.cos(rotAngle), sinA = Math.sin(rotAngle)
+        const sx = cx + cosA * dx - sinA * dy
+        const sy = cy + sinA * dx + cosA * dy
         const sr = n.size * n.pulse * cameraZoom
 
         const tw    = ctx.measureText(n.label).width
@@ -565,7 +576,8 @@ export default function CosmicCanvas({ agents, holons, topology, onNodeClick }) 
       drawNodes()
       ctx.restore()
 
-      drawLabels(labelP)
+      const rotAngle = phaseNum === 3 ? frameT * 0.000028 : 0
+      drawLabels(labelP, rotAngle)
       drawCentralGlow(cameraZoom)
 
       const vig = ctx.createRadialGradient(cx, cy, Math.min(W, H) * 0.28, cx, cy, Math.max(W, H) * 0.72)
@@ -578,6 +590,8 @@ export default function CosmicCanvas({ agents, holons, topology, onNodeClick }) 
     rafId = requestAnimationFrame(loop)
 
     const onResize = () => {
+      // Release old nebula canvas GPU memory before replacing
+      neb.width = 0
       W = canvas.width  = canvas.offsetWidth
       H = canvas.height = canvas.offsetHeight
       cx = W / 2; cy = H / 2

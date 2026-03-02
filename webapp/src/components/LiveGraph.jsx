@@ -1,5 +1,6 @@
 import { DataSet, Network } from 'vis-network/standalone'
 import { useEffect, useRef, useState } from 'react'
+import CosmicCanvas from './CosmicCanvas'
 
 const HOLON_COLORS = {
   Forming:      '#636e72',
@@ -20,11 +21,11 @@ const ROLE_COLORS = {
 export default function LiveGraph({ topology, holons, agents, onNodeClick, taskHolon }) {
   const ref = useRef(null)
   const net = useRef(null)
-  const [filter, setFilter] = useState('all') // 'all' | 'agents' | 'holons'
   const [paused, setPaused] = useState(false)
 
   useEffect(() => {
     if (!ref.current) return
+    if (!taskHolon) return  // cosmic canvas handles main swarm view
 
     const nodes = []
     const edges = []
@@ -289,7 +290,7 @@ export default function LiveGraph({ topology, holons, agents, onNodeClick, taskH
     })
 
     return () => { if (net.current) net.current.destroy() }
-  }, [topology, holons, agents, filter, taskHolon])
+  }, [topology, holons, agents, taskHolon])
 
   useEffect(() => {
     if (net.current) {
@@ -301,9 +302,22 @@ export default function LiveGraph({ topology, holons, agents, onNodeClick, taskH
 
   return (
     <div className="graph-area">
-      <div id="live-graph" ref={ref} className="graph-container" />
+      {/* Holon detail — vis-network */}
+      {taskHolon && (
+        <div id="live-graph" ref={ref} className="graph-container" />
+      )}
 
-      {(topology?.nodes || []).length === 0 && (holons || []).length === 0 && !taskHolon && (
+      {/* Main swarm — cosmic canvas */}
+      {!taskHolon && (
+        <CosmicCanvas
+          agents={agents}
+          holons={holons}
+          topology={topology}
+          onNodeClick={onNodeClick}
+        />
+      )}
+
+      {!taskHolon && (topology?.nodes || []).length === 0 && (holons || []).length === 0 && (
         <div className="graph-empty">
           Waiting for agents to connect…
         </div>
@@ -312,10 +326,9 @@ export default function LiveGraph({ topology, holons, agents, onNodeClick, taskH
       <div className="graph-controls">
         {taskHolon ? (
           <>
-            <span style={{ fontSize: 10, color: '#f59e0b', marginRight: 6, fontFamily: 'var(--font-mono)' }}>
+            <span style={{ fontSize: 10, color: 'var(--platinum)', marginRight: 6, fontFamily: 'var(--font-mono)' }}>
               ⬡ Holon — {taskHolon.status}
             </span>
-            {/* Role legend */}
             {Object.entries(ROLE_COLORS).map(([role, color]) => (
               <span key={role} style={{ fontSize: 9, color, marginRight: 5 }}>■ {role}</span>
             ))}
@@ -324,17 +337,7 @@ export default function LiveGraph({ topology, holons, agents, onNodeClick, taskH
               {paused ? '▶ Resume' : '⏸ Pause'}
             </button>
           </>
-        ) : (
-          <>
-            <button className="btn" style={{ fontSize: 11 }} onClick={fitGraph}>⊞ Fit</button>
-            <button className={`btn${filter === 'all' ? ' btn-primary' : ''}`} style={{ fontSize: 11 }} onClick={() => setFilter('all')}>All</button>
-            <button className={`btn${filter === 'agents' ? ' btn-primary' : ''}`} style={{ fontSize: 11 }} onClick={() => setFilter('agents')}>Agents</button>
-            <button className={`btn${filter === 'holons' ? ' btn-primary' : ''}`} style={{ fontSize: 11 }} onClick={() => setFilter('holons')}>Holons</button>
-            <button className="btn" style={{ fontSize: 11 }} onClick={() => setPaused(p => !p)}>
-              {paused ? '▶ Resume' : '⏸ Pause'}
-            </button>
-          </>
-        )}
+        ) : null}
       </div>
     </div>
   )

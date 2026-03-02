@@ -1,16 +1,18 @@
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
 
 :root {
-  --bg:           #020810;
-  --surface:      #060f1e;
-  --surface-2:    #0a1628;
-  --border:       #0d2035;
-  --border-2:     #152a42;
+  --bg:           #000000;
+  --surface:      #0a0a12;
+  --surface-2:    #111120;
+  --border:       #1a1a2e;
+  --border-2:     #222238;
 
-  --teal:         #00e5b0;
-  --teal-dim:     #00a07a;
-  --teal-bright:  #00ffcc;
-  /* reserved for vis-network node/edge colors (Tasks 5+) */
+  --platinum:       #e8e8f0;
+  --platinum-dim:   #8888a8;
+  --platinum-glow:  rgba(232,232,240,0.6);
+  --platinum-faint: rgba(232,232,240,0.08);
+
+  /* keep these for holon detail vis-network coloring */
   --violet:       #7c3aff;
   --violet-dim:   #3d1d7f;
   --violet-text:  #a78bfa;
@@ -18,9 +20,9 @@
   --coral:        #ff3355;
   --dim-blue:     #1a3a5c;
 
-  --text:         #c8e8ff;
-  --text-muted:   #4a7a9b;
-  --text-dim:     #1e3a52;
+  --text:         #d8d8e8;
+  --text-muted:   #6868a0;
+  --text-dim:     #2a2a48;
 
   --font-display: 'Syne', sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
@@ -58,7 +60,7 @@ body {
   height: 52px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
-  background: rgba(2, 8, 16, 0.92);
+  background: rgba(0, 0, 0, 0.92);
   backdrop-filter: blur(8px);
   z-index: 20;
 }
@@ -66,7 +68,7 @@ body {
 .header-brand {
   font-size: 18px;
   font-weight: 800;
-  color: var(--teal);
+  color: var(--platinum);
   letter-spacing: -0.5px;
   margin-right: 8px;
 }
@@ -100,7 +102,7 @@ body {
 
 .health-dot.red    { background: var(--coral); box-shadow: 0 0 6px var(--coral); }
 .health-dot.yellow { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
-.health-dot.green  { background: var(--teal);  box-shadow: 0 0 6px var(--teal);  }
+.health-dot.green  { background: var(--platinum); box-shadow: 0 0 6px var(--platinum-glow); }
 
 .header-actions {
   display: flex;
@@ -125,21 +127,21 @@ body {
 
 .btn:hover {
   color: var(--text);
-  border-color: var(--teal-dim);
-  background: rgba(0, 229, 176, 0.06);
+  border-color: var(--platinum-dim);
+  background: rgba(232, 232, 240, 0.06);
 }
 
 .btn-primary {
-  background: var(--teal);
-  color: var(--bg);
-  border-color: var(--teal);
+  background: var(--platinum);
+  color: #000;
+  border-color: var(--platinum);
   font-weight: 700;
 }
 
 .btn-primary:hover {
-  background: var(--teal-bright);
-  border-color: var(--teal-bright);
-  box-shadow: 0 0 16px rgba(0, 229, 176, 0.4);
+  background: #fff;
+  border-color: #fff;
+  box-shadow: 0 0 16px var(--platinum-glow);
 }
 
 .btn-ghost {
@@ -159,10 +161,7 @@ body {
   flex: 1;
   position: relative;
   overflow: hidden;
-  background:
-    radial-gradient(ellipse 60% 40% at 50% 30%, rgba(0, 229, 176, 0.04) 0%, transparent 70%),
-    radial-gradient(ellipse 40% 30% at 70% 60%, rgba(124, 58, 255, 0.04) 0%, transparent 70%),
-    var(--bg);
+  background: #000;
 }
 
 .graph-area::before {
@@ -212,7 +211,7 @@ body {
   height: 180px;
   flex-shrink: 0;
   border-top: 1px solid var(--border);
-  background: rgba(6, 15, 30, 0.95);
+  background: rgba(10, 10, 18, 0.95);
   overflow: hidden;
 }
 
@@ -273,7 +272,7 @@ body {
 
 .health-count.red    { color: var(--coral); }
 .health-count.yellow { color: var(--amber); }
-.health-count.green  { color: var(--teal);  }
+.health-count.green  { color: var(--platinum);  }
 
 /* task stream */
 .task-item {
@@ -290,8 +289,8 @@ body {
 }
 
 .task-item:hover {
-  border-color: var(--teal-dim);
-  background: rgba(0, 229, 176, 0.04);
+  border-color: var(--platinum-dim);
+  background: rgba(232, 232, 240, 0.04);
 }
 
 .task-status-dot {
@@ -303,7 +302,7 @@ body {
 
 .task-id {
   font-family: var(--font-mono);
-  color: var(--teal);
+  color: var(--platinum);
   font-size: 10px;
   flex-shrink: 0;
 }
@@ -358,7 +357,7 @@ body {
 .slide-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(2, 8, 16, 0.6);
+  background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(2px);
   pointer-events: all;
   animation: fadeIn 0.2s ease forwards;
@@ -455,8 +454,8 @@ body {
 .panel-tab:hover { color: var(--text); }
 
 .panel-tab.active {
-  color: var(--teal);
-  border-bottom-color: var(--teal);
+  color: var(--platinum);
+  border-bottom-color: var(--platinum);
 }
 
 /* ── Detail panel internals ──────────────── */
@@ -498,7 +497,7 @@ body {
   font-family: var(--font-display);
 }
 
-.badge-teal    { background: rgba(0, 229, 176, 0.15); color: var(--teal);   border: 1px solid rgba(0, 229, 176, 0.3); }
+.badge-teal    { background: rgba(232,232,240,0.10); color: var(--platinum); border: 1px solid rgba(232,232,240,0.25); }
 .badge-violet  { background: rgba(124, 58, 255, 0.15); color: var(--violet-text); border: 1px solid rgba(124, 58, 255, 0.3); }
 .badge-amber   { background: rgba(255, 170, 0, 0.15);  color: var(--amber); border: 1px solid rgba(255, 170, 0, 0.3); }
 .badge-coral   { background: rgba(255, 51, 85, 0.15);  color: var(--coral); border: 1px solid rgba(255, 51, 85, 0.3); }
@@ -530,7 +529,7 @@ body {
   vertical-align: top;
 }
 
-.data-table tr:hover td { background: rgba(0, 229, 176, 0.02); }
+.data-table tr:hover td { background: rgba(232, 232, 240, 0.02); }
 
 /* ── Log / mono areas ────────────────────── */
 .log-box {
@@ -580,7 +579,7 @@ body {
   transition: width 0.4s ease;
 }
 
-.score-bar-fill.green  { background: var(--teal); }
+.score-bar-fill.green  { background: var(--platinum); }
 .score-bar-fill.yellow { background: var(--amber); }
 .score-bar-fill.red    { background: var(--coral); }
 
@@ -615,7 +614,7 @@ body {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--teal);
+  background: var(--platinum);
   cursor: pointer;
 }
 
@@ -623,7 +622,7 @@ body {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--teal);
+  background: var(--platinum);
   cursor: pointer;
   border: none;
 }
@@ -672,7 +671,7 @@ body {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(2, 8, 16, 0.8);
+  background: rgba(0, 0, 0, 0.8);
   backdrop-filter: blur(4px);
   z-index: 100;
   display: flex;
@@ -714,7 +713,7 @@ body {
 
 .input:focus {
   outline: none;
-  border-color: var(--teal-dim);
+  border-color: var(--platinum-dim);
 }
 
 .error-msg {
@@ -776,3 +775,17 @@ body {
 
 /* ── Graph node tooltip (vis-network) ───── */
 #live-graph { width: 100%; height: 100%; }
+
+/* ── Cosmic watermark ─────────────────────────── */
+.cosmic-watermark {
+  position: fixed;
+  bottom: 28px;
+  left: 32px;
+  font-family: 'Palatino Linotype', 'Book Antiqua', Palatino, serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(200, 200, 220, 0.25);
+  pointer-events: none;
+  z-index: 10;
+}

@@ -1370,6 +1370,10 @@ mod tests {
             inject_rate_limiter: std::collections::HashMap::new(),
             reputation_ledgers: std::collections::HashMap::new(),
             rep_event_rate_limiter: std::collections::HashMap::new(),
+            pending_key_rotations: std::collections::HashMap::new(),
+            pending_revocations: std::collections::HashMap::new(),
+            guardian_designations: std::collections::HashMap::new(),
+            guardian_votes: std::collections::HashMap::new(),
         };
 
         state.mark_member_seen("did:swarm:agent-1");
@@ -1449,6 +1453,10 @@ mod tests {
             inject_rate_limiter: std::collections::HashMap::new(),
             reputation_ledgers: std::collections::HashMap::new(),
             rep_event_rate_limiter: std::collections::HashMap::new(),
+            pending_key_rotations: std::collections::HashMap::new(),
+            pending_revocations: std::collections::HashMap::new(),
+            guardian_designations: std::collections::HashMap::new(),
+            guardian_votes: std::collections::HashMap::new(),
         };
 
         state.push_task_timeline_event("t1", "injected", "", None);
@@ -1591,6 +1599,10 @@ mod tests {
             inject_rate_limiter: std::collections::HashMap::new(),
             reputation_ledgers: std::collections::HashMap::new(),
             rep_event_rate_limiter: std::collections::HashMap::new(),
+            pending_key_rotations: std::collections::HashMap::new(),
+            pending_revocations: std::collections::HashMap::new(),
+            guardian_designations: std::collections::HashMap::new(),
+            guardian_votes: std::collections::HashMap::new(),
         };
 
         let mut console = OperatorConsole::new(Arc::new(RwLock::new(state)), handle_a.clone());

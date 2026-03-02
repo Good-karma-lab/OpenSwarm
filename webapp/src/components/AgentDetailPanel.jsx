@@ -5,7 +5,7 @@ function scrub(s) {
 function healthLabel(a) {
   if (!a.connected) return { text: 'DOWN', cls: 'badge-coral' }
   if (!a.loop_active) return { text: 'DEGRADED', cls: 'badge-amber' }
-  return { text: 'HEALTHY', cls: 'badge-teal' }
+  return { text: 'HEALTHY', cls: 'badge-platinum' }
 }
 
 function mini(label, value, color) {
@@ -88,7 +88,7 @@ export default function AgentDetailPanel({ agent, tasks, onTaskClick }) {
         <span>Tier: <strong>{agent.tier}</strong></span>
         <span className={`badge ${health.cls}`}>{health.text}</span>
         {agent.can_inject_tasks
-          ? <span className="badge badge-teal" title="Can submit tasks to the swarm">✓ Can inject tasks</span>
+          ? <span className="badge badge-platinum" title="Can submit tasks to the swarm">✓ Can inject tasks</span>
           : <span className="badge badge-amber" title="Must complete at least 5 tasks first">⚠ No inject rights</span>
         }
       </div>

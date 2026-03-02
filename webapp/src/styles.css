@@ -10,7 +10,6 @@
   --platinum:       #e8e8f0;
   --platinum-dim:   #8888a8;
   --platinum-glow:  rgba(232,232,240,0.6);
-  --platinum-faint: rgba(232,232,240,0.08);
 
   /* keep these for holon detail vis-network coloring */
   --violet:       #7c3aff;
@@ -497,7 +496,7 @@ body {
   font-family: var(--font-display);
 }
 
-.badge-teal    { background: rgba(232,232,240,0.10); color: var(--platinum); border: 1px solid rgba(232,232,240,0.25); }
+.badge-platinum { background: rgba(232,232,240,0.10); color: var(--platinum); border: 1px solid rgba(232,232,240,0.25); }
 .badge-violet  { background: rgba(124, 58, 255, 0.15); color: var(--violet-text); border: 1px solid rgba(124, 58, 255, 0.3); }
 .badge-amber   { background: rgba(255, 170, 0, 0.15);  color: var(--amber); border: 1px solid rgba(255, 170, 0, 0.3); }
 .badge-coral   { background: rgba(255, 51, 85, 0.15);  color: var(--coral); border: 1px solid rgba(255, 51, 85, 0.3); }

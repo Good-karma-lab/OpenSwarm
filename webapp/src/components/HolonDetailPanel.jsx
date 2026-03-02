@@ -8,7 +8,7 @@ const STATUS_BADGE = {
   Voting:       'badge-coral',
   Executing:    'badge-violet',
   Synthesizing: 'badge-violet',
-  Done:         'badge-teal',
+  Done:         'badge-platinum',
 }
 
 export default function HolonDetailPanel({ holon, holons, onTaskClick, onHolonClick }) {

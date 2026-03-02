@@ -7,7 +7,7 @@ test('header renders brand and action buttons', async ({ page }) => {
   await page.goto('/')
 
   // Brand
-  await expect(page.getByText('ASIP')).toBeVisible()
+  await expect(page.getByText('WWS')).toBeVisible()
 
   // Action buttons
   await expect(page.getByRole('button', { name: /Submit Task/i })).toBeVisible()

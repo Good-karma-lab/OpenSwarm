@@ -19,7 +19,7 @@ test('30-agent swarm web console shows requested capabilities', async ({ page })
   })
 
   await page.goto('/')
-  await expect(page.getByText('OpenSwarm Web Console')).toBeVisible()
+  await expect(page.getByText('WWS')).toBeVisible()
 
   // 1) Expandable hierarchy
   await page.getByRole('button', { name: 'hierarchy' }).click()

@@ -72,8 +72,8 @@ test('Phase 3 Holonic E2E: full swarm deliberation via UI', async ({ page, reque
   // ── Step 1: Load web console ─────────────────────────────────────────────
   await test.step('Load web console', async () => {
     await page.goto('/')
-    await expect(page.getByText('ASIP', { exact: true })).toBeVisible({ timeout: 30000 })
-    log('[UI] Web console loaded — ASIP brand visible')
+    await expect(page.getByText('WWS', { exact: true })).toBeVisible({ timeout: 30000 })
+    log('[UI] Web console loaded — WWS brand visible')
   })
 
   // ── Step 2: Submit task via UI modal ─────────────────────────────────────

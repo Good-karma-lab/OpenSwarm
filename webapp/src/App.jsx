@@ -22,6 +22,7 @@ export default function App() {
   const [audit, setAudit]               = useState({ events: [] })
   const [auth, setAuth]                 = useState({ token_required: false })
   const [holons, setHolons]             = useState([])
+  const [conversations, setConversations] = useState([])
   const [live, setLive]                 = useState({ active_tasks: 0, known_agents: 0, messages: [], events: [] })
 
   // ── Task detail state ──────────────────
@@ -41,7 +42,7 @@ export default function App() {
   // ── Polling ────────────────────────────
   const refresh = useCallback(async () => {
     try {
-      const [v, m, t, ag, tp, a, au, hl] = await Promise.all([
+      const [v, m, t, ag, tp, a, au, hl, conv] = await Promise.all([
         api.voting(),
         api.messages(),
         api.tasks(),
@@ -50,6 +51,7 @@ export default function App() {
         api.audit(),
         api.authStatus(),
         api.holons().catch(() => []),
+        api.conversations().catch(() => ({ conversations: [], count: 0 })),
       ])
       setVoting(v)
       setMessages(m)
@@ -59,6 +61,7 @@ export default function App() {
       setAudit(a)
       setAuth(au)
       setHolons(hl)
+      setConversations(conv?.conversations ?? [])
     } catch (_) {
       // connector offline — keep existing state, retry next poll
     }
@@ -211,7 +214,7 @@ export default function App() {
 
       {panel?.type === 'messages' && (
         <SlidePanel title="P2P Messages" onClose={closePanel}>
-          <MessagesPanel messages={messages} />
+          <MessagesPanel conversations={conversations} />
         </SlidePanel>
       )}
 

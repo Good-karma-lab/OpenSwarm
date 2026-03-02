@@ -1243,6 +1243,19 @@ pub(crate) async fn handle_submit_result(
             );
         }
 
+        // PendingReview: flag task if confidence delta exceeds per-task threshold (Moltbook insight #8).
+        {
+            let threshold = state.task_details
+                .get(&submission.task_id)
+                .map(|t| t.confidence_review_threshold)
+                .unwrap_or(1.0);
+            if confidence_delta > threshold as f64 {
+                if let Some(t) = state.task_details.get_mut(&submission.task_id) {
+                    t.status = openswarm_protocol::TaskStatus::PendingReview;
+                }
+            }
+        }
+
         // Track silent failure rate (Moltbook insight #16).
         // total_outcomes_reported increments on every submit_result call.
         // silent_failure_count only increments when outcome is FailedSilently.
@@ -2077,6 +2090,19 @@ pub(crate) async fn handle_inject_task(
     }
     if let Some(arr) = params.get("tools_available").and_then(|v| v.as_array()) {
         task.tools_available = arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+    }
+    // Wire deliverables / coverage / confidence-review threshold (Task 7 — v0.6.0).
+    if let Some(deliverables) = params
+        .get("deliverables")
+        .and_then(|v| serde_json::from_value::<Vec<openswarm_protocol::Deliverable>>(v.clone()).ok())
+    {
+        task.deliverables = deliverables;
+    }
+    if let Some(ct) = params.get("coverage_threshold").and_then(|v| v.as_f64()) {
+        task.coverage_threshold = ct as f32;
+    }
+    if let Some(crt) = params.get("confidence_review_threshold").and_then(|v| v.as_f64()) {
+        task.confidence_review_threshold = crt as f32;
     }
     let task_id = task.task_id.clone();
 
@@ -3192,5 +3218,79 @@ mod tests {
         // Try to resolve again
         let resp2 = handle_resolve_clarification(Some("3".into()), &res_params, &state).await;
         assert!(resp2.error.is_some(), "double-resolve should return error");
+    }
+
+    /// Create a throwaway SwarmHandle for unit tests that need network_handle.
+    fn make_test_network_handle() -> openswarm_network::SwarmHandle {
+        use openswarm_network::{SwarmHost, SwarmHostConfig};
+        let config = SwarmHostConfig {
+            listen_addr: "/ip4/127.0.0.1/tcp/0".parse().unwrap(),
+            ..Default::default()
+        };
+        let (_host, handle, _rx) = SwarmHost::new(config).expect("test SwarmHost");
+        handle
+    }
+
+    #[tokio::test]
+    async fn test_inject_task_with_deliverables_stored() {
+        let state = make_minimal_state();
+        let network_handle = make_test_network_handle();
+        let params = serde_json::json!({
+            "task_id": "t-del-1",
+            "injector_agent_id": "did:swarm:test-self",
+            "description": "Task with deliverables",
+            "deliverables": [
+                {"id": "d1", "description": "Draft", "state": "Done"},
+                {"id": "d2", "description": "Tests", "state": "Skipped"}
+            ],
+            "coverage_threshold": 0.5,
+            "confidence_review_threshold": 0.3
+        });
+        let resp = handle_inject_task(Some("1".into()), &params, &state, &network_handle).await;
+        assert!(resp.error.is_none(), "inject should succeed: {:?}", resp.error);
+
+        let s = state.read().await;
+        let task = s.task_details.get("t-del-1").expect("task stored");
+        assert_eq!(task.deliverables.len(), 2);
+        assert!((task.coverage_threshold - 0.5).abs() < 1e-4);
+        assert!((task.confidence_review_threshold - 0.3).abs() < 1e-4);
+    }
+
+    #[tokio::test]
+    async fn test_submit_result_triggers_pending_review() {
+        let state = make_minimal_state();
+        let network_handle = make_test_network_handle();
+
+        // Inject task with low confidence_review_threshold
+        let inject_params = serde_json::json!({
+            "task_id": "t-cr-1",
+            "injector_agent_id": "did:swarm:test-self",
+            "description": "Sensitive task",
+            "confidence_review_threshold": 0.1
+        });
+        let inject_resp = handle_inject_task(Some("1".into()), &inject_params, &state, &network_handle).await;
+        assert!(inject_resp.error.is_none(), "inject should succeed: {:?}", inject_resp.error);
+
+        // Give the task a parent so submit_result doesn't block with -32011
+        {
+            let mut s = state.write().await;
+            if let Some(t) = s.task_details.get_mut("t-cr-1") {
+                t.parent_task_id = Some("parent-placeholder".to_string());
+            }
+        }
+
+        // Submit result with high confidence_delta (> 0.1 threshold)
+        let submit_params = serde_json::json!({
+            "task_id": "t-cr-1",
+            "agent_id": "did:swarm:test-self",
+            "confidence_delta": 0.5,
+            "artifact": {}
+        });
+        let resp = handle_submit_result(Some("2".into()), &submit_params, &state, &network_handle).await;
+        assert!(resp.error.is_none(), "submit should succeed: {:?}", resp.error);
+
+        let s = state.read().await;
+        let task = s.task_details.get("t-cr-1").expect("task exists");
+        assert_eq!(task.status, openswarm_protocol::TaskStatus::PendingReview);
     }
 }

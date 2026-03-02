@@ -518,11 +518,21 @@ async fn api_tasks(State(web): State<WebState>) -> Json<serde_json::Value> {
     Json(serde_json::json!({"tasks": tasks}))
 }
 
+fn default_confidence_review_threshold_http() -> f32 {
+    1.0
+}
+
 #[derive(Deserialize)]
 struct TaskSubmitRequest {
     description: String,
     #[serde(default)]
     injector_agent_id: Option<String>,
+    #[serde(default)]
+    deliverables: Vec<openswarm_protocol::Deliverable>,
+    #[serde(default)]
+    coverage_threshold: f32,
+    #[serde(default = "default_confidence_review_threshold_http")]
+    confidence_review_threshold: f32,
 }
 
 async fn api_submit_task(
@@ -575,9 +585,13 @@ async fn api_submit_task(
         }
     }
 
+    let deliverables_val = serde_json::to_value(&req.deliverables).unwrap_or(serde_json::json!([]));
     let params = serde_json::json!({
         "description": req.description,
         "injector_agent_id": injector_agent_id,
+        "deliverables": deliverables_val,
+        "coverage_threshold": req.coverage_threshold,
+        "confidence_review_threshold": req.confidence_review_threshold,
     });
     let response = crate::rpc_server::handle_inject_task(
         Some("web-submit-task".to_string()),

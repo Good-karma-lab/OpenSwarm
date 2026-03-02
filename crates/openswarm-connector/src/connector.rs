@@ -399,7 +399,12 @@ impl ConnectorState {
             .sum()
     }
 
-    /// Count active task injections for a principal (tasks they injected that are still open).
+    /// Count active (non-terminal) tasks across the entire swarm as a conservative upper bound
+    /// for a principal's active injection count.
+    ///
+    /// NOTE: Because `Task` does not store an `injector_id` field, we cannot filter by principal.
+    /// This returns a global count and will over-estimate for any individual principal.
+    /// TODO: store `injector_id` on `Task` to make this per-principal.
     pub fn principal_active_injection_count(&self, _principal_id: &str) -> usize {
         self.task_details.values()
             .filter(|t| {
@@ -436,7 +441,7 @@ impl ConnectorState {
                 ScoreTier::Trusted => 0.5,
                 ScoreTier::Established => 0.75,
                 ScoreTier::Veteran => 1.0,
-                _ => 0.0,
+                ScoreTier::Suspended => 0.0,
             }
         };
         let n = designation.guardians.len();

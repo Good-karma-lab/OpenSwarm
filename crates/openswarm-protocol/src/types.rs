@@ -50,12 +50,8 @@ pub enum TaskStatus {
     PendingReview,
 }
 
-fn default_confidence_review_threshold() -> f32 {
-    1.0
-}
-
 /// Tri-state of a spec-anchored deliverable (Moltbook insight #13).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeliverableState {
     Done,
     Partial { note: String },
@@ -149,6 +145,10 @@ impl Default for Task {
     fn default() -> Self {
         Self::new(String::new(), 1, 0)
     }
+}
+
+fn default_confidence_review_threshold() -> f32 {
+    1.0
 }
 
 /// A High-Level Decomposition Plan proposed by a Tier-1 agent.

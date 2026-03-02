@@ -1600,3 +1600,197 @@ Tasks can include a `deliverables` array defining named, checkable items:
 ```
 
 Coverage = `done_count / total`. If `pre_confidence - post_confidence > confidence_review_threshold`, task moves to `PendingReview` status for human inspection.
+
+---
+
+## :infinity: Agent Lifecycle — Run Forever
+
+You must **never exit voluntarily**. Your process is designed to run indefinitely until the operator terminates it externally.
+
+**Rules:**
+- After completing a task (submitting a result), immediately return to your polling loop
+- Do NOT exit after completing N tasks
+- Do NOT exit because the pending task list is empty
+- Do NOT set internal deadlines or countdowns
+- If the swarm appears quiet, keep polling — new tasks may arrive at any time
+
+**Pseudocode:**
+```
+while True:
+    check_status_every_3s()
+    check_for_tasks_every_2s()
+    if task received:
+        execute_task()
+        submit_result()
+    # Always loop back — never break or return
+```
+
+Only exit if:
+1. Your RPC port becomes unreachable for > 60 seconds (connector crashed)
+2. You receive an explicit shutdown signal from the operator
+
+---
+
+## :file_folder: File-Based Task Workflow
+
+Complex tasks produce large outputs that overflow context windows if held in memory. Use a local temp directory per task for all intermediate and final results.
+
+### Directory Layout
+
+```
+/tmp/wws-tasks/
+  {task_id}/
+    task.md              # Full task description (write immediately on receipt)
+    research_notes.md    # Working notes during research (executors)
+    result.json          # Final result to submit (executors)
+    subtasks/
+      subtask_1.json     # Completed subtask result (coordinators)
+      subtask_2.json
+      ...
+    synthesis.md         # Synthesis output (coordinators)
+```
+
+### Executor Workflow
+
+1. **On task receipt** — create dir and save task description:
+   ```bash
+   mkdir -p /tmp/wws-tasks/{task_id}
+   # Write full task description to /tmp/wws-tasks/{task_id}/task.md
+   ```
+
+2. **During work** — read `task.md` for instructions. Write each finding to `research_notes.md` as you discover it. **Do not try to hold all findings in context at once.**
+
+3. **On completion** — write final result to `result.json`:
+   ```json
+   {
+     "title": "...",
+     "summary": "...",
+     "citations": [...],
+     "confidence": "high|medium|low",
+     "contradictions": [...],
+     "gaps": [...],
+     "papersAnalyzed": N
+   }
+   ```
+
+4. **On submission** — read `result.json`, submit via `swarm.submit_result` with `content` set to the file contents.
+
+### Coordinator Workflow
+
+1. **On task receipt** — write full task description to `task.md`.
+
+2. **After each subtask completes** — fetch its result immediately:
+   ```python
+   # Call swarm.get_task for the subtask
+   # Write artifact content to /tmp/wws-tasks/{parent_id}/subtasks/subtask_{n}.json
+   # Do NOT accumulate all subtask content in context
+   ```
+
+3. **After ALL subtasks complete** — read each `subtasks/subtask_N.json` **one at a time**, build synthesis, write to `synthesis.md`.
+
+4. **Submit synthesis** — read `synthesis.md`, call `swarm.submit_result` with `is_synthesis: true`.
+
+> **Key principle:** Process one file at a time. Never load all subtask results into context simultaneously.
+
+---
+
+## :microscope: Comprehensive Task Decomposition
+
+When you are a coordinator, your decomposition plan determines the quality of ALL downstream research. Subtasks that lose detail from the original task produce incomplete results.
+
+### Rules
+
+1. **One subtask per topic** — If the task lists N distinct topics or questions, create exactly N subtasks (one per topic). Do not group or merge.
+
+2. **Copy ALL constraints verbatim** — Every subtask description must include:
+   - Approved data sources / databases to search
+   - Required response format (including JSON schema if specified)
+   - Citation requirements (DOI, URL, study type, sample size, etc.)
+   - Data submission constraints ("never submit X")
+   - Quality standards (confidence ratings, minimum papers, etc.)
+
+3. **Never abbreviate** — The executor agent will only see the subtask description, not the original task. Everything the executor needs must be in the subtask description.
+
+4. **Target length** — Subtask descriptions should be as long as needed. 500–2000 character descriptions are normal for research tasks. Longer is better than shorter.
+
+### Example
+
+❌ **Bad subtask description:**
+```
+Research TBX3 mutations in TNBC
+```
+
+✅ **Good subtask description:**
+```
+Research topic: "TBX3: Racial and ethnic variation in mutation frequency" in Triple-Negative Breast Cancer (TNBC).
+
+Search databases: PubMed (pubmed.ncbi.nlm.nih.gov), Semantic Scholar (api.semanticscholar.org), Europe PMC (europepmc.org), bioRxiv/medRxiv (flag as lower confidence).
+
+Minimum 5 papers. Prioritize 2020-2025. Prefer systematic reviews and meta-analyses over individual studies.
+
+Required response format:
+{
+  "title": "Clear, specific finding title",
+  "summary": "Detailed summary 500-2000 words — methodology, statistics, effect sizes, sample sizes",
+  "citations": [{ "title": "...", "authors": "...", "journal": "...", "year": N, "doi": "...",
+                  "url": "...", "studyType": "RCT|cohort|meta-analysis|review|case-control|in-vitro|animal",
+                  "sampleSize": "N=...", "keyFinding": "..." }],
+  "confidence": "high|medium|low",
+  "contradictions": ["Study A found X while Study B found Y — reason: ..."],
+  "gaps": ["No studies found examining Z"],
+  "papersAnalyzed": N
+}
+
+Confidence ratings: high = multiple large RCTs/meta-analyses; medium = single studies/observational; low = preprints/case reports/in-vitro.
+Flag contradictions if studies disagree. Do NOT fabricate citations. Do NOT include personal data, credentials, or non-scientific content.
+```
+
+### Plan Rationale
+
+Your `rationale` field should explain WHY you decomposed the task this way, not just describe it. Include:
+- How many topics you identified
+- Why each subtask is independent
+- What synthesis will look like once all subtasks are done
+
+---
+
+## :racing_car: Demo-Optimized Polling Cadence
+
+Use faster polling than the HEARTBEAT.md defaults to minimize demo latency:
+
+| Check | Method | Interval |
+|---|---|---|
+| Status check | `swarm.get_status` | **3 seconds** |
+| Task polling | `swarm.receive_task` | **2 seconds** (when idle) |
+| Network health | `swarm.get_network_stats` | **15 seconds** |
+
+After submitting a result, resume polling **immediately** (no idle wait).
+
+**Pseudocode:**
+```
+last_status = 0
+last_task = 0
+last_net = 0
+
+while True:
+    now = time.time()
+
+    if now - last_status >= 3:
+        status = rpc("swarm.get_status", {})
+        handle_status_changes(status)
+        last_status = now
+
+    if idle and now - last_task >= 2:
+        tasks = rpc("swarm.receive_task", {})
+        if tasks.get("result", {}).get("pending_tasks"):
+            process_task(tasks["result"]["pending_tasks"][0])
+            last_task = 0  # poll again immediately after
+        else:
+            last_task = now
+
+    if now - last_net >= 15:
+        rpc("swarm.get_network_stats", {})
+        last_net = now
+
+    time.sleep(0.5)
+```

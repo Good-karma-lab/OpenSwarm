@@ -20,6 +20,7 @@ pub enum ScoreTier {
 }
 
 impl ScoreTier {
+    /// Returns the display name of this tier as a static string.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Suspended => "Suspended",
@@ -192,7 +193,7 @@ pub fn observer_weighted_points(base_points: i64, observer_score: i64, is_object
     if is_objective {
         return base_points;
     }
-    let weight = (observer_score as f64 / 1000.0).min(1.0).max(0.0);
+    let weight = (observer_score as f64 / 1000.0).clamp(0.0, 1.0);
     (base_points as f64 * weight) as i64
 }
 
@@ -404,5 +405,23 @@ mod tests {
         for t in &types {
             assert_ne!(t.base_points(), 0, "{:?} has zero base_points", t);
         }
+    }
+
+    #[test]
+    fn test_reputation_ledger_event_log_cap() {
+        let mut ledger = ReputationLedger::default();
+        for _ in 0..502 {
+            ledger.apply_event(RepEvent {
+                event_type: RepEventType::MissingKeepalive,
+                base_points: -1,
+                observer: "self".into(),
+                observer_score: 0,
+                effective_points: -1,
+                task_id: None,
+                timestamp: chrono::Utc::now(),
+                evidence: None,
+            });
+        }
+        assert_eq!(ledger.events.len(), 500);
     }
 }

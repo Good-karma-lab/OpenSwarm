@@ -1223,6 +1223,16 @@ pub(crate) async fn handle_submit_result(
             ),
         );
 
+        let confidence_delta = params.get("confidence_delta").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let _task_outcome_str = params.get("task_outcome").and_then(|v| v.as_str()).unwrap_or("succeeded_fully").to_string();
+
+        if confidence_delta > 0.2 {
+            state.push_log(
+                crate::tui::LogCategory::Swarm,
+                format!("Agent confidence dropped {:.2} during task — review suggested", confidence_delta),
+            );
+        }
+
         // Store the result for potential aggregation
         state.task_results.insert(submission.task_id.clone(), submission.artifact.clone());
         let content_text = params

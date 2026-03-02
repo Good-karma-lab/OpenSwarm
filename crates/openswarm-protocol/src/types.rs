@@ -377,6 +377,53 @@ impl SwarmInfo {
     }
 }
 
+/// Structured task outcome (Moltbook insight #2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TaskOutcome {
+    SucceededFully { artifact_id: String },
+    SucceededPartially { artifact_id: String, coverage_spec: String },
+    FailedHonestly { reason: FailureReason, duration_ms: u64 },
+    FailedSilently,
+}
+
+/// Detailed failure reasons for intelligent retry (Moltbook insight #2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FailureReason {
+    MissingCapabilities { required: Vec<String>, had: Vec<String> },
+    ContradictoryConstraints { conflict_description: String },
+    InsufficientContext { missing_keys: Vec<String> },
+    ResourceExhausted { resource: String },
+    ExternalDependencyFailed { dependency: String },
+    TaskAmbiguous { ambiguity_description: String },
+}
+
+/// Commitment receipt with rich reversibility info (Moltbook insight #1).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitmentReceipt {
+    pub commitment_id: String,
+    pub deliverable_type: String,
+    pub evidence_hash: String,
+    pub confidence_delta: f64,
+    pub can_undo: bool,
+    pub rollback_cost: Option<String>,
+    pub rollback_window: Option<String>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub commitment_state: CommitmentState,
+    pub task_id: String,
+    pub agent_id: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// State of a commitment receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CommitmentState {
+    Active,
+    Fulfilled,
+    Expired,
+    Failed,
+    Disputed,
+}
+
 // ── Holonic Swarm Types ──
 
 /// Status of a holonic board.
@@ -770,6 +817,54 @@ mod tests {
         assert_eq!(restored.tallies["plan-A"], 3);
         assert_eq!(restored.eliminated, Some("plan-C".to_string()));
         assert_eq!(restored.continuing_candidates.len(), 2);
+    }
+
+    #[test]
+    fn test_task_outcome_serialization() {
+        let outcome = TaskOutcome::SucceededPartially {
+            artifact_id: "art-1".into(),
+            coverage_spec: "80% complete".into(),
+        };
+        let json = serde_json::to_string(&outcome).unwrap();
+        let restored: TaskOutcome = serde_json::from_str(&json).unwrap();
+        match restored {
+            TaskOutcome::SucceededPartially { coverage_spec, .. } => {
+                assert_eq!(coverage_spec, "80% complete");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_failure_reason_missing_capabilities() {
+        let reason = FailureReason::MissingCapabilities {
+            required: vec!["gpu".into()],
+            had: vec!["cpu".into()],
+        };
+        let json = serde_json::to_string(&reason).unwrap();
+        assert!(json.contains("MissingCapabilities"));
+    }
+
+    #[test]
+    fn test_commitment_receipt_serialization() {
+        let receipt = CommitmentReceipt {
+            commitment_id: "c1".into(),
+            deliverable_type: "artifact".into(),
+            evidence_hash: "sha256:abc".into(),
+            confidence_delta: 0.1,
+            can_undo: true,
+            rollback_cost: Some("low".into()),
+            rollback_window: Some("PT1H".into()),
+            expires_at: None,
+            commitment_state: CommitmentState::Active,
+            task_id: "t1".into(),
+            agent_id: "a1".into(),
+            created_at: chrono::Utc::now(),
+        };
+        let json = serde_json::to_string(&receipt).unwrap();
+        let restored: CommitmentReceipt = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.commitment_state, CommitmentState::Active);
+        assert!((restored.confidence_delta - 0.1).abs() < 1e-10);
     }
 
     #[test]

@@ -82,6 +82,8 @@ pub struct AgentActivity {
     pub plans_revealed_count: u64,
     pub votes_cast_count: u64,
     pub tasks_injected_count: u64,
+    /// tasks_injected_count / tasks_processed_count (principal accountability).
+    pub contribution_ratio: f64,
 }
 
 /// A direct message received from another agent via the swarm DM topic.
@@ -435,8 +437,22 @@ impl ConnectorState {
         self.activity_mut(agent_id).tasks_assigned_count += 1;
     }
 
+    pub fn bump_tasks_injected(&mut self, agent_id: &str) {
+        let a = self.activity_mut(agent_id);
+        a.tasks_injected_count += 1;
+        let processed = a.tasks_processed_count.max(1) as f64;
+        a.contribution_ratio = a.tasks_injected_count as f64 / processed;
+    }
+
     pub fn bump_tasks_processed(&mut self, agent_id: &str) {
         self.activity_mut(agent_id).tasks_processed_count += 1;
+        // Recalculate contribution ratio
+        {
+            let a = self.activity_mut(agent_id);
+            let injected = a.tasks_injected_count as f64;
+            let processed = a.tasks_processed_count as f64;
+            a.contribution_ratio = if processed > 0.0 { injected / processed } else { 0.0 };
+        }
         self.apply_rep_event(agent_id, RepEventType::TaskExecutedVerified, None);
     }
 

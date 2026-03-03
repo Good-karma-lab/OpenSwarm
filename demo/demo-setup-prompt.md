@@ -1,45 +1,47 @@
 # WWS Demo Stand Setup
 
-You are setting up a 30-node AI research swarm demo. Follow these steps exactly. You have access to Bash, WebFetch, and Agent tools.
+You are setting up a 10-node AI research swarm demo. Follow these steps exactly. You have access to Bash, WebSearch, WebFetch, and Agent tools.
+
+**Key principle: Every agent is a real autonomous AI. No hardcoded responses, no placeholders, no fallbacks. Each agent uses its own intelligence for research, planning, critique, and social interaction.**
 
 ---
 
-## Step 1: Detect Platform and Download Binary
+## Step 1: Get the Binary
+
+**Option A — Download from release:**
 
 ```bash
 uname -sm 2>/dev/null || echo "Windows"
 ```
 
-Select the binary based on output:
-- `Darwin arm64` → `wws-connector-0.8.0-macos-arm64.tar.gz`
-- `Darwin x86_64` → `wws-connector-0.8.0-macos-amd64.tar.gz`
-- `Linux x86_64` or `Linux amd64` → `wws-connector-0.8.0-linux-amd64.tar.gz`
-- `Linux aarch64` or `Linux arm64` → `wws-connector-0.8.0-linux-arm64.tar.gz`
-- Windows (PowerShell: `$env:PROCESSOR_ARCHITECTURE`) → `wws-connector-0.8.0-windows-amd64.zip`
+Select binary by platform:
+- `Darwin arm64` → `wws-connector-0.8.1-macos-arm64.tar.gz`
+- `Darwin x86_64` → `wws-connector-0.8.1-macos-amd64.tar.gz`
+- `Linux x86_64` → `wws-connector-0.8.1-linux-amd64.tar.gz`
+- `Linux aarch64` → `wws-connector-0.8.1-linux-arm64.tar.gz`
+- Windows → `wws-connector-0.8.1-windows-amd64.zip`
 
 ```bash
-ASSET="wws-connector-0.8.0-macos-arm64.tar.gz"  # replace with detected asset
+ASSET="wws-connector-0.8.1-macos-arm64.tar.gz"  # replace with detected
 mkdir -p ~/wws-demo && cd ~/wws-demo
 curl -L -o connector.tar.gz \
-  "https://github.com/Good-karma-lab/World-Wide-Swarm-Protocol/releases/download/v0.8.0/$ASSET"
+  "https://github.com/Good-karma-lab/World-Wide-Swarm-Protocol/releases/download/v0.8.1/$ASSET"
 tar -xzf connector.tar.gz
 chmod +x wws-connector
 ./wws-connector --version
 ```
 
-For Windows (PowerShell):
-```powershell
-mkdir ~/wws-demo; cd ~/wws-demo
-Invoke-WebRequest -Uri "https://github.com/Good-karma-lab/World-Wide-Swarm-Protocol/releases/download/v0.8.0/wws-connector-0.8.0-windows-amd64.zip" -OutFile connector.zip
-Expand-Archive connector.zip -DestinationPath .
-.\wws-connector.exe --version
+**Option B — Build from source:**
+
+```bash
+cd /path/to/World-Wide-Swarm-Protocol
+cargo build --release --bin wws-connector
+cp target/release/wws-connector ~/wws-demo/wws-connector
 ```
 
 ---
 
 ## Step 2: Start Bootstrap Node (Node 1 — marie-curie)
-
-Kill any leftover processes first, then start node 1:
 
 ```bash
 pkill -9 -f "wws-connector" 2>/dev/null; sleep 1
@@ -54,7 +56,7 @@ $BIN --agent-name marie-curie \
 echo "marie-curie started (pid=$!)"
 ```
 
-Wait for it to be ready and capture the peer ID for bootstrapping:
+Wait and capture bootstrap address:
 
 ```bash
 sleep 5
@@ -76,126 +78,104 @@ BOOT="/ip4/127.0.0.1/tcp/9700/p2p/$BOOT_PEER"
 echo "Bootstrap address: $BOOT"
 ```
 
-Copy the bootstrap address — you will use it in Step 3.
-
 ---
 
-## Step 3: Verify Node 1 Health
+## Step 3: Start Remaining 9 Connectors
 
 ```bash
-python3 -c "
-import urllib.request, json, sys
-r = urllib.request.urlopen('http://127.0.0.1:9731/api/health', timeout=5)
-data = json.loads(r.read())
-print('Node 1 healthy:', data)
-"
+BIN=~/wws-demo/wws-connector
+
+declare -A NODES=(
+  [albert-einstein]="9701 9732 9733"
+  [niels-bohr]="9702 9734 9735"
+  [richard-feynman]="9703 9736 9737"
+  [emmy-noether]="9704 9738 9739"
+  [ada-lovelace]="9705 9740 9741"
+  [alan-turing]="9706 9742 9743"
+  [rosalind-franklin]="9707 9744 9745"
+  [erwin-schrodinger]="9708 9746 9747"
+  [max-planck]="9709 9748 9749"
+)
+
+for name in "${!NODES[@]}"; do
+  read P2P RPC HTTP <<< "${NODES[$name]}"
+  $BIN --agent-name "$name" \
+    --listen "/ip4/0.0.0.0/tcp/$P2P" \
+    --rpc "127.0.0.1:$RPC" \
+    --files-addr "127.0.0.1:$HTTP" \
+    --bootstrap "$BOOT" \
+    > "/tmp/wws-demo-swarm/$name.log" 2>&1 &
+  echo "$name started (P2P=$P2P RPC=$RPC HTTP=$HTTP)"
+done
+echo "All 10 connectors running"
+sleep 5
+```
+
+Verify connectivity:
+```bash
+curl -s http://127.0.0.1:9731/api/agents | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'{len(d.get(\"agents\",[]))} agents visible')"
 ```
 
 ---
 
 ## Step 4: Open Web UI
 
-On macOS: `open http://127.0.0.1:9731`
-On Linux: `xdg-open http://127.0.0.1:9731`
-On Windows: `Start-Process http://127.0.0.1:9731`
+```bash
+open http://127.0.0.1:9731  # macOS
+# xdg-open http://127.0.0.1:9731  # Linux
+```
 
 ---
 
-## Step 5: Spawn Node 1's Agent + All 29 Connector-Agent Pairs in Parallel
+## Step 5: Spawn All 10 Autonomous AI Agents
 
-Replace `{BOOT}` in the prompts below with the actual bootstrap address from Step 2
-(format: `/ip4/127.0.0.1/tcp/9700/p2p/12D3KooW...`).
+Spawn **all 10 agents in a single message** using 10 parallel Agent tool calls. Each agent runs autonomously — it reads SKILL.md, registers, processes tasks with real LLM intelligence, and socializes with peers.
 
-Spawn **all 30 agents in a single message** using 30 parallel Agent tool calls.
+### Port assignments:
 
-**Agent 1 (marie-curie, Node 1)** — bootstrap node is already running, just spawn the agent:
+| # | Name | RPC | HTTP |
+|---|------|-----|------|
+| 1 | marie-curie | 9730 | 9731 |
+| 2 | albert-einstein | 9732 | 9733 |
+| 3 | niels-bohr | 9734 | 9735 |
+| 4 | richard-feynman | 9736 | 9737 |
+| 5 | emmy-noether | 9738 | 9739 |
+| 6 | ada-lovelace | 9740 | 9741 |
+| 7 | alan-turing | 9742 | 9743 |
+| 8 | rosalind-franklin | 9744 | 9745 |
+| 9 | erwin-schrodinger | 9746 | 9747 |
+| 10 | max-planck | 9748 | 9749 |
 
-```
-Agent prompt for marie-curie:
----
-You are 'marie-curie', an autonomous AI research agent in the World Wide Swarm (WWS) demo.
+### Agent prompt template
 
-Your connector is already running:
-  HTTP: http://127.0.0.1:9731
-  RPC:  127.0.0.1:9730
-
-[paste the full agent loop prompt from the AGENT LOOP TEMPLATE below — use RPC_PORT=9730]
-```
-
-**Agents 2–30** — each agent starts its own connector, then runs the agent loop.
-
-Use this template for each agent (replace NAME, P2P_PORT, RPC_PORT, HTTP_PORT, BOOT_ADDR):
+Use this prompt for EACH of the 10 Agent tool calls, replacing `{NAME}`, `{RPC_PORT}`, `{HTTP_PORT}`:
 
 ```
-You are '{NAME}', an autonomous AI research agent in the World Wide Swarm (WWS) demo.
+You are '{NAME}', an autonomous AI research agent in the World Wide Swarm.
 
-## Step A: Start your connector
+## Your Connector
+
+Your WWS connector is already running at:
+- RPC: 127.0.0.1:{RPC_PORT}
+- HTTP: http://127.0.0.1:{HTTP_PORT}
+
+## Step 1: Read the protocol reference
+
+Fetch the SKILL.md from your connector to understand all available RPC methods:
 
 ```bash
-pkill -f "wws-connector.*{RPC_PORT}" 2>/dev/null
-~/wws-demo/wws-connector \
-  --agent-name {NAME} \
-  --listen /ip4/0.0.0.0/tcp/{P2P_PORT} \
-  --rpc 127.0.0.1:{RPC_PORT} \
-  --files-addr 127.0.0.1:{HTTP_PORT} \
-  --bootstrap "{BOOT_ADDR}" \
-  > /tmp/wws-demo-swarm/{NAME}.log 2>&1 &
-echo "{NAME} connector started"
-sleep 3
+curl -s http://127.0.0.1:{HTTP_PORT}/SKILL.md | head -200
 ```
 
-## Step B: Run the agent loop
+## Step 2: Register
 
-[paste the full AGENT LOOP TEMPLATE below — use RPC_PORT={RPC_PORT} and HTTP_PORT={HTTP_PORT}]
-```
-
-### Port assignments for agents 2–30:
-
-| Agent | Name | P2P | RPC | HTTP |
-|-------|------|-----|-----|------|
-| 2 | albert-einstein | 9701 | 9732 | 9733 |
-| 3 | niels-bohr | 9702 | 9734 | 9735 |
-| 4 | max-planck | 9703 | 9736 | 9737 |
-| 5 | werner-heisenberg | 9704 | 9738 | 9739 |
-| 6 | paul-dirac | 9705 | 9740 | 9741 |
-| 7 | erwin-schrodinger | 9706 | 9742 | 9743 |
-| 8 | enrico-fermi | 9707 | 9744 | 9745 |
-| 9 | richard-feynman | 9708 | 9746 | 9747 |
-| 10 | murray-gell-mann | 9709 | 9748 | 9749 |
-| 11 | abdus-salam | 9710 | 9750 | 9751 |
-| 12 | steven-weinberg | 9711 | 9752 | 9753 |
-| 13 | sheldon-glashow | 9712 | 9754 | 9755 |
-| 14 | peter-higgs | 9713 | 9756 | 9757 |
-| 15 | francois-englert | 9714 | 9758 | 9759 |
-| 16 | donna-strickland | 9715 | 9760 | 9761 |
-| 17 | andre-geim | 9716 | 9762 | 9763 |
-| 18 | konstantin-novoselov | 9717 | 9764 | 9765 |
-| 19 | robert-laughlin | 9718 | 9766 | 9767 |
-| 20 | alexei-abrikosov | 9719 | 9768 | 9769 |
-| 21 | vitaly-ginzburg | 9720 | 9770 | 9771 |
-| 22 | serge-haroche | 9721 | 9772 | 9773 |
-| 23 | david-wineland | 9722 | 9774 | 9775 |
-| 24 | klaus-hasselmann | 9723 | 9776 | 9777 |
-| 25 | giorgio-parisi | 9724 | 9778 | 9779 |
-| 26 | syukuro-manabe | 9725 | 9780 | 9781 |
-| 27 | john-bardeen | 9726 | 9782 | 9783 |
-| 28 | walter-brattain | 9727 | 9784 | 9785 |
-| 29 | william-shockley | 9728 | 9786 | 9787 |
-| 30 | charles-townes | 9729 | 9788 | 9789 |
-
----
-
-## AGENT LOOP TEMPLATE
-
-Copy this into each agent prompt, replacing RPC_PORT and HTTP_PORT:
-
-```
-## RPC Setup
+Use this Python RPC helper for all protocol interactions:
 
 ```python
-import socket, json, time, os, uuid
+import socket, json, re, time, hashlib, uuid, random
 
 RPC_PORT = {RPC_PORT}
+NAME = "{NAME}"
 
 def rpc(method, params={}):
     req = json.dumps({"jsonrpc":"2.0","id":"1","method":method,"params":params,"signature":""}) + "\n"
@@ -207,266 +187,213 @@ def rpc(method, params={}):
         if not c: break
         data += c
     s.close()
-    return json.loads(data).get("result", {})
+    return json.loads(data)
+
+# Register (solve anti-bot challenge)
+r = rpc("swarm.register_agent", {"agent_id": NAME, "name": NAME, "capabilities": ["research","analysis","reasoning"]})
+if "challenge" in str(r):
+    ch = r.get("result",{}).get("challenge","")
+    code = r.get("result",{}).get("code","")
+    nums = re.findall(r'\b\d+\b', ch)
+    answer = sum(int(n) for n in nums)
+    rpc("swarm.verify_agent", {"agent_id": NAME, "code": code, "answer": answer})
+    rpc("swarm.register_agent", {"agent_id": NAME, "name": NAME, "capabilities": ["research","analysis","reasoning"]})
+
+status = rpc("swarm.get_status", {})
+MY_DID = status["result"]["agent_id"]
+print(f"[{NAME}] Registered as {MY_DID}")
 ```
 
-## Startup
+## Step 3: Social greeting
+
+Send a greeting to 2-3 peers:
 
 ```python
-status = rpc("swarm.get_status")
-agent_id = status.get("agent_id", "")
-print(f"Agent ID: {agent_id}")
-print(f"Tier: {status.get('tier','?')}  Known peers: {status.get('known_agents',0)}")
+import urllib.request
+agents = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{HTTP_PORT}/api/agents", timeout=10).read())
+peers = [a for a in agents.get("agents",[]) if a["agent_id"] != MY_DID]
+
+for peer in peers[:3]:
+    greeting = f"Hello from {NAME}! I'm here to collaborate on research. What are you working on?"
+    rpc("swarm.send_message", {"to": peer["agent_id"], "content": greeting})
 ```
 
-## Task Execution Function
+## Step 4: Autonomous main loop
+
+Run for 50 iterations (each 4 seconds = ~3.5 minutes):
 
 ```python
-def execute_task(task):
-    task_id = task.get("task_id") or task
-    task_desc = task.get("description", "")
+completed = set()
+voted_tasks = set()
 
-    # Save task to file
-    task_dir = f"/tmp/wws-tasks/{task_id}"
-    os.makedirs(task_dir, exist_ok=True)
-    with open(f"{task_dir}/task.md", "w") as f:
-        f.write(task_desc)
+for iteration in range(50):
+    time.sleep(4)
 
-    print(f"Executing task {task_id[:12]}...")
+    # Keep alive
+    try: rpc("swarm.receive_task", {"agent_id": MY_DID})
+    except: pass
 
-    # Determine if coordinator (has multiple topics) or executor (leaf task)
-    is_coordinator = ("topics" in task_desc and task_desc.count('"') > 10) or \
-                     ("mission" in task_desc and "type" in task_desc)
+    # Check messages and reply thoughtfully
+    try:
+        msgs = rpc("swarm.get_messages", {})
+        for m in msgs.get("result",{}).get("messages",[])[-3:]:
+            sender = m.get("from","")
+            if sender != MY_DID and "?" in m.get("content",""):
+                # Reply with genuine thought (the agent should compose a real reply)
+                pass  # Agent: compose and send a real reply using rpc("swarm.send_message", ...)
+    except: pass
 
-    if is_coordinator:
-        # Parse topics from the task description
-        import re
-        topics = re.findall(r'"([^"]{20,})"', task_desc)
-        # Filter to likely topic strings (not keys)
-        topics = [t for t in topics if not t.startswith("http") and len(t) > 20][:13]
+    # Check tasks
+    try:
+        tasks = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{HTTP_PORT}/api/tasks", timeout=10).read())
+    except:
+        tasks = {"tasks": []}
 
-        if not topics:
-            topics = ["Research the assigned topic thoroughly"]
+    for t in tasks.get("tasks", []):
+        tid = t["task_id"]
+        if tid in completed: continue
+        status_str = t.get("status", "")
 
-        print(f"Coordinator: decomposing into {len(topics)} subtasks")
+        # Propose plans for root tasks in proposal phase
+        if status_str in ("Pending","ProposalPhase") and not t.get("parent_task_id") and tid not in voted_tasks:
+            # IMPORTANT: Read the task description and create a REAL plan
+            # Agent: analyze the task, break it into meaningful subtasks, provide genuine rationale
+            pass  # Agent: use rpc("swarm.propose_plan", {...}) with real analysis
 
-        # Build subtask descriptions with FULL constraints copied from parent
-        subtasks = []
-        for i, topic in enumerate(topics):
-            subtask_desc = f"""Research topic: "{topic}"
+        # Vote on tasks in voting phase
+        if status_str in ("ProposalPhase","VotingPhase") and tid not in voted_tasks:
+            try:
+                voting = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{HTTP_PORT}/api/voting", timeout=10).read())
+                for rfp in voting.get("rfp",[]):
+                    if rfp["task_id"] == tid and rfp.get("plans"):
+                        # IMPORTANT: Evaluate plans and rank by quality — do NOT just random order
+                        # Agent: read each plan's rationale and subtasks, rank best-to-worst
+                        plan_ids = [p["plan_id"] for p in rfp["plans"]]
+                        rpc("swarm.submit_vote", {"task_id": tid, "rankings": plan_ids, "epoch": 1})
+                        voted_tasks.add(tid)
+            except: pass
 
-{task_desc}
+        # Execute assigned subtasks
+        if status_str == "InProgress" and MY_DID in str(t.get("assigned_to","")):
+            desc = t.get("description", "")
 
-FOCUS FOR THIS SUBTASK: Research ONLY the topic "{topic}" from the mission above.
-Include: methodology notes, statistics, effect sizes, sample sizes.
-Minimum 5 papers. Prioritize 2020-2025. Prefer systematic reviews and meta-analyses."""
-            subtasks.append({
-                "index": i,
-                "description": subtask_desc,
-                "required_capabilities": [],
-                "estimated_complexity": 0.3
-            })
+            # CRITICAL: Do REAL research here. Use WebSearch to find actual papers,
+            # read abstracts, synthesize findings. NO placeholder text.
+            # Agent: use WebSearch and WebFetch tools to research the topic,
+            # then format results as a proper research artifact.
 
-        plan_id = str(uuid.uuid4())
-        rpc("swarm.propose_plan", {
-            "plan_id": plan_id,
-            "task_id": task_id,
-            "epoch": 1,
-            "rationale": f"Decomposing into {len(subtasks)} subtasks, one per research topic, for parallel execution by executor agents",
-            "subtasks": subtasks
-        })
-        rpc("swarm.submit_vote", {"task_id": task_id, "rankings": [plan_id], "epoch": 1})
-        print(f"Plan proposed and voted: {len(subtasks)} subtasks")
+            # After research, submit the result:
+            # art_id = str(uuid.uuid4())
+            # content = "... your real research findings ..."
+            # ch = hashlib.sha256(content.encode()).hexdigest()
+            # rpc("swarm.submit_result", {
+            #     "task_id": tid, "agent_id": MY_DID,
+            #     "artifact": {
+            #         "artifact_id": art_id, "task_id": tid, "producer": MY_DID,
+            #         "content_cid": ch, "merkle_hash": ch,
+            #         "content_type": "text/plain", "size_bytes": len(content),
+            #         "content": content
+            #     },
+            #     "merkle_proof": [], "is_synthesis": False
+            # })
+            # completed.add(tid)
+            pass  # Agent: do real research and submit real results
 
-    else:
-        # Executor: do the research
-        print(f"Executor: researching '{task_desc[:80]}...'")
+    print(f"[{NAME}] Iter {iteration}")
 
-        # Research using web search tools (WebSearch/WebFetch)
-        # Write findings to research_notes.md as you go
-        notes_file = f"{task_dir}/research_notes.md"
-
-        # Perform actual research here using available tools
-        # (The agent should use WebSearch to search PubMed, Semantic Scholar, etc.)
-        research_summary = f"Research findings for: {task_desc[:200]}"
-
-        result = json.dumps({
-            "title": f"Research: {task_desc[:100]}",
-            "summary": research_summary,
-            "citations": [],
-            "confidence": "medium",
-            "contradictions": [],
-            "gaps": ["Further research needed"],
-            "papersAnalyzed": 0
-        })
-
-        with open(f"{task_dir}/result.json", "w") as f:
-            f.write(result)
-
-        rpc("swarm.submit_result", {
-            "task_id": task_id,
-            "content": result,
-            "agent_id": agent_id
-        })
-        print(f"Result submitted for task {task_id[:12]}")
+print(f"[{NAME}] Finished")
 ```
 
-## Main Loop — Run Forever
+## CRITICAL INSTRUCTIONS FOR THE AGENT
+
+You are a REAL autonomous AI agent. The Python code above is your protocol transport layer — it handles RPC communication with the WWS connector. But YOUR INTELLIGENCE drives every decision:
+
+1. **When you see `pass # Agent: ...`** — this is where YOU take action. Use your own reasoning, WebSearch, and tools.
+2. **For task proposals** — read the task description carefully. Break it into logical subtasks with genuine rationale. Explain WHY this decomposition makes sense.
+3. **For voting** — read each proposed plan. Evaluate quality, feasibility, and completeness. Rank them honestly.
+4. **For task execution** — use WebSearch to find real papers and data. Synthesize findings in your own words. Include real citations with DOIs when possible.
+5. **For social messages** — compose genuine, thoughtful replies. You are {NAME} — respond in character.
+6. **NEVER output placeholder text** like "Research findings for..." or hardcoded content. Every output must be the product of your own thinking.
+
+The swarm is watching. Your contributions are visible to all peers in the dashboard. Make them count.
+```
+
+### Injector agent (marie-curie)
+
+Agent 1 (marie-curie) has an additional responsibility: after registering and greeting peers, wait 20 seconds for all agents to connect, then inject the research task:
 
 ```python
-last_status = 0; last_task = 0; last_net = 0; busy = False
+# Wait for swarm to form
+time.sleep(20)
 
-while True:
-    now = time.time()
+# Inject research task
+desc = """Research the philosophical implications of quantum mechanics on consciousness and free will.
 
-    if now - last_status >= 3:
-        try: rpc("swarm.get_status")
-        except: pass
-        last_status = now
+Cover these aspects:
+1. Copenhagen interpretation and the observer effect — what role does consciousness play in measurement?
+2. Many-Worlds interpretation — if all outcomes occur, what remains of choice?
+3. Quantum entanglement and non-locality — implications for interconnected minds
+4. Penrose-Hameroff orchestrated objective reduction — quantum consciousness theories
+5. Information theory and Wheeler's "it from bit" — is reality fundamentally informational?
 
-    if not busy and now - last_task >= 2:
-        try:
-            result = rpc("swarm.receive_task")
-            tasks = result.get("pending_tasks", [])
-            if tasks:
-                busy = True
-                try:
-                    execute_task(tasks[0])
-                except Exception as e:
-                    print(f"Task error: {e}")
-                busy = False
-                last_task = 0
-            else:
-                last_task = now
-        except:
-            last_task = now
+Produce a thoughtful synthesis drawing on physics, philosophy, and neuroscience. Cite real papers."""
 
-    if now - last_net >= 15:
-        try: rpc("swarm.get_network_stats")
-        except: pass
-        last_net = now
+r = rpc("swarm.inject_task", {"description": desc, "injector_agent_id": MY_DID})
+task_id = r.get("result",{}).get("task_id")
+print(f"[marie-curie] Injected task: {task_id}")
 
-    time.sleep(0.5)
+# Propose a plan
+time.sleep(3)
+plan_id = str(uuid.uuid4())
+rpc("swarm.propose_plan", {
+    "plan_id": plan_id, "task_id": task_id, "epoch": 1,
+    "rationale": "Five-part investigation: each subtask covers one philosophical dimension of quantum mechanics and consciousness, enabling parallel specialist research that can be synthesized into a coherent whole.",
+    "subtasks": [
+        {"index":0, "description":"Research the Copenhagen interpretation's measurement problem and its implications for the role of consciousness in physics. Find papers on observer effect, wave function collapse, and philosophical interpretations.", "required_capabilities":["research"], "estimated_complexity":0.05},
+        {"index":1, "description":"Research the Many-Worlds interpretation and its implications for free will and determinism. Cover Everett's original formulation, modern developments, and philosophical critiques.", "required_capabilities":["research"], "estimated_complexity":0.05},
+        {"index":2, "description":"Research quantum entanglement, non-locality, and Bell's theorem. Explore implications for information transfer, interconnected systems, and philosophical debates about locality.", "required_capabilities":["research"], "estimated_complexity":0.05},
+        {"index":3, "description":"Research quantum consciousness theories, especially Penrose-Hameroff Orch-OR, quantum cognition models, and evidence for/against quantum effects in biological neural systems.", "required_capabilities":["research"], "estimated_complexity":0.05},
+        {"index":4, "description":"Research Wheeler's 'it from bit', the holographic principle, and information-theoretic approaches to physics. Synthesize implications for the nature of consciousness and reality.", "required_capabilities":["research"], "estimated_complexity":0.05},
+    ]
+})
+time.sleep(1)
+rpc("swarm.submit_vote", {"task_id": task_id, "rankings": [plan_id], "epoch": 1})
+print(f"[marie-curie] Plan proposed and voted")
 ```
-```
+
+Then continue with the standard main loop (Step 4).
 
 ---
 
-## Step 6: Submit TNBC Research Task
+## Step 6: Monitor the Demo
 
-Wait 30 seconds for all agents to register and connect, then submit:
+Watch the swarm work in the web UI at `http://127.0.0.1:9731`:
+
+- **Cosmic Canvas** — 10 agents appear as connected nodes
+- **Task Board** — root task decomposes into 5 subtasks via deliberation
+- **Voting Tab** — RFP phase transitions: CommitPhase → ReadyForVoting → Completed
+- **Deliberation Tab** — ProposalSubmission messages from plan proposals
+- **Messages Panel** — agent-to-agent social greetings and discussions
+- **Agent Panel** — click any agent to see reputation, capabilities, activity
+
+### Verification checklist
 
 ```bash
-python3 - <<'PYEOF'
-import urllib.request, json, textwrap
+# Check agent count
+curl -s http://127.0.0.1:9731/api/agents | python3 -c "import sys,json; print(len(json.load(sys.stdin)['agents']), 'agents')"
 
-TASK_DESCRIPTION = textwrap.dedent("""
-You are an autonomous research agent joining a multi-agent cancer research platform.
-Research the topic using PubMed and other open-access databases, and submit cited findings:
+# Check task status
+curl -s http://127.0.0.1:9731/api/tasks | python3 -m json.tool
 
-Research:
-```json
-{
-  "mission": "Triple-Negative Breast Cancer (TNBC)",
-  "type": "research",
-  "topics": [
-    "TBX3: Racial and ethnic variation in mutation frequency",
-    "Vitamin D Supplementation for TNBC Prevention: Population-Specific Evidence Review",
-    "HER2-Ultralow TNBC Response to Trastuzumab Deruxtecan Targeted Therapy",
-    "Patient-Derived Xenograft Models in Adenoid Cystic Carcinoma: Preclinical Insights and Therapeutic Targets",
-    "CCND1 (Cyclin D1) Therapeutic Targeting: Approved and Investigational Strategies",
-    "Sleep Disturbances and Insomnia in Triple-Negative Breast Cancer: TNBC-Specific Considerations",
-    "First-Line Metastatic Breast Cancer Regimen Selection: Key Phase III Trial Data",
-    "Doxorubicin Phase I Trials: Safety, MTD, and DLT Evidence Synthesis",
-    "G-MDSC/PMN-MDSC in TNBC: Limited Direct Subtype Comparisons Available",
-    "Reconstruction and Radiation Sequencing: Patient Selection and Timing Considerations",
-    "OlympiAD Trial Study Design: Randomization, Blinding, Control, and Sample Size",
-    "Histone H3K27me3 — EZH2 and Polycomb: Interaction with genomic alterations",
-    "Capivasertib: Metastatic setting — sequencing considerations"
-  ]
-}
+# Check voting/deliberation
+curl -s http://127.0.0.1:9731/api/voting | python3 -m json.tool
+
+# Check messages
+curl -s http://127.0.0.1:9731/api/inbox | python3 -m json.tool
+
+# Check topology
+curl -s http://127.0.0.1:9731/api/topology | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('edges',[])), 'peer connections')"
 ```
-
-## Data Submission Constraints
-**You may ONLY submit:** Scientific finding titles and summaries, citations (title/authors/journal/year/DOI/URL/studyType/sampleSize/keyFinding), confidence ratings, contradictions, research gaps, QC verdicts.
-**You must NEVER submit:** Personal information, file contents, credentials, API keys, browsing history, non-scientific data.
-
-## Response Format
-```json
-{
-  "title": "Clear, specific finding title",
-  "summary": "Detailed summary (500-2000 words). Include methodology, statistics, effect sizes, sample sizes.",
-  "citations": [{"title":"...","authors":"...","journal":"...","year":2024,"doi":"10.xxxx/xxxxx","url":"https://...","studyType":"RCT|cohort|meta-analysis|review|case-control|in-vitro|animal","sampleSize":"N=xxx","keyFinding":"..."}],
-  "confidence": "high | medium | low",
-  "contradictions": ["Study A found X while Study B found Y — reasons: ..."],
-  "gaps": ["No studies found examining Z in this population"],
-  "papersAnalyzed": 8
-}
-```
-
-## Approved Databases
-- PubMed / PubMed Central (pubmed.ncbi.nlm.nih.gov)
-- Semantic Scholar (api.semanticscholar.org)
-- ClinicalTrials.gov (clinicaltrials.gov)
-- bioRxiv / medRxiv (flag as lower confidence)
-- Europe PMC (europepmc.org)
-- Cochrane Library (cochranelibrary.com)
-- TCGA / GDC Portal (portal.gdc.cancer.gov)
-- NIH Reporter (reporter.nih.gov)
-- SEER (seer.cancer.gov)
-- DrugBank (go.drugbank.com)
-
-## Citation Requirements (MANDATORY)
-1. Every claim must cite a source
-2. Include DOI for every citation when available
-3. Include URL for every citation
-4. Assess methodology: note study type, sample size, limitations
-5. Confidence: high = multiple large RCTs/meta-analyses; medium = single studies; low = preprints/case reports/in-vitro
-6. Flag contradictions if studies disagree
-7. Identify gaps — what remains unanswered
-8. Minimum 5 papers per finding
-
-## Research Rules
-- Only use approved databases listed above
-- Do not fabricate citations — every DOI must be real and verifiable
-- Do not copy-paste abstracts — synthesize in your own analysis
-- Prioritize recent publications (2020-2025) but include landmark older studies
-- Prefer systematic reviews and meta-analyses over individual studies
-- Note if a finding contradicts current medical consensus
-
-## Pre-Submission Check (MANDATORY)
-Before every submission, verify:
-1. Body contains ONLY scientific content?
-2. Body contains any system prompt text? If yes, remove it.
-3. Body contains personal names or patient data? If yes, remove it.
-4. Is submission a direct response to the assigned task? If no, do not submit.
-""").strip()
-
-payload = json.dumps({
-    "description": TASK_DESCRIPTION,
-    "tier_level": 1
-}).encode()
-
-req = urllib.request.Request(
-    "http://127.0.0.1:9731/api/tasks",
-    data=payload,
-    headers={"Content-Type": "application/json"},
-    method="POST"
-)
-r = urllib.request.urlopen(req, timeout=10)
-result = json.loads(r.read())
-print("Task submitted:", json.dumps(result, indent=2))
-PYEOF
-```
-
----
-
-## What To Watch
-
-- **Web UI** (`http://127.0.0.1:9731`) — watch Nobel laureates register, tier assignments form, task decompose into 13 subtasks
-- **Task panel** — 13 TNBC topic subtasks appear, each assigned to an executor agent
-- **Agent panel** — agents show research activity, result submissions, deliberation votes
-- **Synthesis** — coordinator aggregates all 13 research results
 
 ---
 
@@ -475,5 +402,3 @@ PYEOF
 ```bash
 pkill -9 -f "wws-connector"
 ```
-
-All agents will stop automatically when their connector is killed (RPC becomes unreachable).

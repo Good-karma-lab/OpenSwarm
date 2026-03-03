@@ -1,4 +1,4 @@
-export default function Header({ agents, tasks, live, onSubmitClick, onAuditClick, onMessagesClick }) {
+export default function Header({ agents, tasks, live, onAuditClick, onMessagesClick }) {
   const agentList = agents?.agents || []
   const taskList = tasks?.tasks || []
 
@@ -52,7 +52,6 @@ export default function Header({ agents, tasks, live, onSubmitClick, onAuditClic
       <div className="header-actions">
         <button className="btn btn-ghost" onClick={onMessagesClick}>Messages</button>
         <button className="btn btn-ghost" onClick={onAuditClick}>Audit</button>
-        <button className="btn btn-primary" onClick={onSubmitClick}>+ Submit Task</button>
       </div>
     </header>
   )

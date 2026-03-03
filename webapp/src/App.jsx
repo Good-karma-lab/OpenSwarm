@@ -10,8 +10,6 @@ import AgentDetailPanel from './components/AgentDetailPanel'
 import HolonDetailPanel from './components/HolonDetailPanel'
 import AuditPanel from './components/AuditPanel'
 import MessagesPanel from './components/MessagesPanel'
-import SubmitTaskModal from './components/SubmitTaskModal'
-
 export default function App() {
   // ── Data state ─────────────────────────
   const [voting, setVoting]             = useState({ voting: [], rfp: [] })
@@ -33,10 +31,6 @@ export default function App() {
 
   // ── UI state ───────────────────────────
   const [panel, setPanel]               = useState(null) // { type, data }
-  const [showSubmit, setShowSubmit]     = useState(false)
-  const [description, setDescription]   = useState('')
-  const [operatorToken, setOperatorToken] = useState(localStorage.getItem('openswarm.web.token') || '')
-  const [submitError, setSubmitError]   = useState('')
 
   // ── Polling ────────────────────────────
   const refresh = useCallback(async () => {
@@ -78,22 +72,6 @@ export default function App() {
     }
     return () => ws.close()
   }, [])
-
-  // ── Task submission ────────────────────
-  const submitTask = async () => {
-    if (!description.trim()) return
-    localStorage.setItem('openswarm.web.token', operatorToken || '')
-    try {
-      const res = await api.submitTask(description, operatorToken)
-      setSubmitError('')
-      setDescription('')
-      setShowSubmit(false)
-      if (res.task_id) loadTrace(res.task_id)
-      await refresh()
-    } catch (err) {
-      setSubmitError(err.payload?.error || err.message)
-    }
-  }
 
   // ── Task trace loading ─────────────────
   const loadTrace = useCallback(async (requestedTaskId) => {
@@ -142,7 +120,6 @@ export default function App() {
         agents={agents}
         tasks={tasks}
         live={live}
-        onSubmitClick={() => setShowSubmit(true)}
         onAuditClick={() => setPanel({ type: 'audit', data: {} })}
         onMessagesClick={() => setPanel({ type: 'messages', data: {} })}
       />
@@ -216,18 +193,6 @@ export default function App() {
         </SlidePanel>
       )}
 
-      {showSubmit && (
-        <SubmitTaskModal
-          description={description}
-          setDescription={setDescription}
-          operatorToken={operatorToken}
-          setOperatorToken={setOperatorToken}
-          auth={auth}
-          onSubmit={submitTask}
-          onClose={() => { setShowSubmit(false); setSubmitError('') }}
-          submitError={submitError}
-        />
-      )}
     </div>
   )
 }

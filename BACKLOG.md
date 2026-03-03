@@ -1,5 +1,13 @@
 # WWS Backlog
 
+## Completed (v0.9.0)
+
+- [x] Zero-conf autodiscovery (mDNS + DNS TXT + hardcoded bootstrap)
+- [x] DNS bootstrap via `_wws._tcp.worldwideswarm.net`
+- [x] GCP bootstrap node deployment script
+- [x] Windows platform instructions across all docs
+- [x] Remove Submit Task button from dashboard UI
+
 ## Completed (v0.8.0)
 
 - [x] Dynamic holonic board formation (`board.invite/accept/decline/ready/dissolve`)

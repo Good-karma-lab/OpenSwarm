@@ -47,8 +47,7 @@ pub const DEFAULT_BOOTSTRAP_DOMAIN: &str = "worldwideswarm.net";
 /// Updated each release. These are well-known public WWS nodes.
 /// Format: multiaddr strings with /p2p/<peer_id> suffix.
 pub const DEFAULT_BOOTSTRAP_PEERS: &[&str] = &[
-    // placeholder — replace with real bootstrap node before v0.9.0 release
-    // "/ip4/BOOTSTRAP_IP/tcp/9000/p2p/BOOTSTRAP_PEER_ID",
+    "/ip4/35.202.140.201/tcp/9000/p2p/12D3KooWKQekwA5n8QD9i6ygNWS2tK9u4ESexmnshTSmFrYwu2tk",
 ];
 
 /// Returns the blast radius cost for a rollback_cost string value.

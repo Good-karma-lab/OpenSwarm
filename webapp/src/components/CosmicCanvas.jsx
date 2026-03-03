@@ -659,10 +659,13 @@ export default function CosmicCanvas({ agents, holons, topology, onNodeClick }) 
       stateRef.current = { nodes, cameraZoom, W, H, rotAngle: 0 }
     }
     window.addEventListener('resize', onResize)
+    const ro = new ResizeObserver(onResize)
+    ro.observe(canvas.parentElement)
 
     return () => {
       cancelAnimationFrame(rafId)
       window.removeEventListener('resize', onResize)
+      ro.disconnect()
     }
   }, []) // ← runs once; prop changes handled by the incremental effect below
 

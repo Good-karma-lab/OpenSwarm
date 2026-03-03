@@ -40,6 +40,16 @@ pub const MAX_CONCURRENT_INJECTIONS: usize = 50;
 /// Maximum blast radius (sum of rollback_cost weights) per principal (Moltbook insight #19).
 pub const MAX_BLAST_RADIUS: u32 = 200;
 
+/// Default bootstrap domain for DNS TXT record discovery.
+pub const DEFAULT_BOOTSTRAP_DOMAIN: &str = "worldwideswarm.net";
+
+/// Hardcoded fallback bootstrap peers compiled into the binary.
+/// Updated each release. These are well-known public WWS nodes.
+/// Format: multiaddr strings with /p2p/<peer_id> suffix.
+pub const DEFAULT_BOOTSTRAP_PEERS: &[&str] = &[
+    "/ip4/35.202.140.201/tcp/9000/p2p/12D3KooWKQekwA5n8QD9i6ygNWS2tK9u4ESexmnshTSmFrYwu2tk",
+];
+
 /// Returns the blast radius cost for a rollback_cost string value.
 /// null/None → 0, "low" → 1, "medium" → 3, "high" → 10.
 pub fn blast_radius_cost(rollback_cost: Option<&str>) -> u32 {
@@ -2978,6 +2988,56 @@ impl WwsConnector {
         peers
     }
 
+    /// Resolve bootstrap peers from all sources: CLI/config, DNS TXT, and hardcoded defaults.
+    /// All sources are merged and deduplicated.
+    pub async fn resolve_all_bootstrap_peers(
+        cli_peers: &[String],
+        bootstrap_domain: &str,
+        no_default_bootstrap: bool,
+    ) -> Vec<String> {
+        let mut all_addrs: Vec<String> = cli_peers.to_vec();
+
+        // Layer 2: DNS TXT lookup
+        tracing::info!(domain = %bootstrap_domain, "Querying DNS TXT records for bootstrap peers");
+        let dns_addrs = wws_network::dns_bootstrap::lookup_bootstrap_peers(bootstrap_domain).await;
+        if dns_addrs.is_empty() {
+            tracing::debug!(domain = %bootstrap_domain, "No bootstrap peers found via DNS TXT");
+        } else {
+            tracing::info!(count = dns_addrs.len(), domain = %bootstrap_domain, "Found bootstrap peers via DNS TXT");
+            for addr in &dns_addrs {
+                all_addrs.push(addr.to_string());
+            }
+        }
+
+        // Layer 3: Hardcoded fallback
+        if !no_default_bootstrap {
+            for addr_str in DEFAULT_BOOTSTRAP_PEERS {
+                if !addr_str.is_empty() {
+                    all_addrs.push(addr_str.to_string());
+                }
+            }
+            if !DEFAULT_BOOTSTRAP_PEERS.is_empty() {
+                tracing::info!(count = DEFAULT_BOOTSTRAP_PEERS.len(), "Added hardcoded default bootstrap peers");
+            }
+        }
+
+        // Deduplicate by multiaddr string
+        let mut seen = std::collections::HashSet::new();
+        all_addrs.retain(|a| {
+            let trimmed = a.trim().to_string();
+            !trimmed.is_empty() && seen.insert(trimmed)
+        });
+
+        tracing::info!(
+            total = all_addrs.len(),
+            cli = cli_peers.iter().filter(|s| !s.trim().is_empty()).count(),
+            dns = dns_addrs.len(),
+            "Bootstrap peer resolution complete"
+        );
+
+        all_addrs
+    }
+
     /// Extract a PeerId from a multiaddress string by finding the /p2p/<id> segment.
     fn extract_peer_id_from_addr(addr: &str) -> Option<PeerId> {
         let parts: Vec<&str> = addr.split('/').collect();
@@ -3724,5 +3784,66 @@ mod tests {
         assert_eq!(blast_radius_cost(Some("high")), 10);
         assert_eq!(blast_radius_cost(None), 0);
         assert_eq!(blast_radius_cost(Some("unknown")), 0);
+    }
+
+    #[test]
+    fn default_bootstrap_peers_constant_format() {
+        // Each entry (if any) should be a valid multiaddr string with /p2p/
+        for addr_str in DEFAULT_BOOTSTRAP_PEERS {
+            assert!(
+                addr_str.contains("/p2p/"),
+                "Hardcoded bootstrap peer should contain /p2p/ component: {}",
+                addr_str
+            );
+        }
+        // Constant exists and is accessible (compilation test)
+        let _ = DEFAULT_BOOTSTRAP_PEERS.len();
+    }
+
+    #[tokio::test]
+    async fn resolve_all_bootstrap_peers_with_cli_peers_only() {
+        let peer_id = PeerId::random();
+        let cli_peers = vec![format!("/ip4/10.0.0.1/tcp/4001/p2p/{}", peer_id)];
+        let result = WwsConnector::resolve_all_bootstrap_peers(
+            &cli_peers,
+            "nonexistent.invalid",
+            true,
+        ).await;
+        assert_eq!(result.len(), 1);
+        assert!(result[0].contains(&peer_id.to_string()));
+    }
+
+    #[tokio::test]
+    async fn resolve_all_bootstrap_peers_deduplicates() {
+        let peer_id = PeerId::random();
+        let addr = format!("/ip4/10.0.0.1/tcp/4001/p2p/{}", peer_id);
+        let cli_peers = vec![addr.clone(), addr.clone()];
+        let result = WwsConnector::resolve_all_bootstrap_peers(
+            &cli_peers,
+            "nonexistent.invalid",
+            true,
+        ).await;
+        assert_eq!(result.len(), 1, "Should deduplicate identical addresses");
+    }
+
+    #[tokio::test]
+    async fn resolve_all_bootstrap_peers_skips_empty() {
+        let cli_peers: Vec<String> = vec!["".to_string(), "  ".to_string()];
+        let result = WwsConnector::resolve_all_bootstrap_peers(
+            &cli_peers,
+            "nonexistent.invalid",
+            true,
+        ).await;
+        assert!(result.is_empty(), "Should skip empty/whitespace entries");
+    }
+
+    #[tokio::test]
+    async fn resolve_all_bootstrap_peers_dns_failure_is_graceful() {
+        let result = WwsConnector::resolve_all_bootstrap_peers(
+            &[],
+            "nonexistent.invalid",
+            true,
+        ).await;
+        assert!(result.is_empty(), "DNS failure should be graceful, returning empty list");
     }
 }

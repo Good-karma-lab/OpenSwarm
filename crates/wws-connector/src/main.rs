@@ -83,6 +83,14 @@ struct Cli {
     /// Path to Ed25519 key file (default: ~/.config/wws-connector/<name>.key).
     #[arg(long, value_name = "PATH")]
     key_file: Option<std::path::PathBuf>,
+
+    /// DNS domain for bootstrap peer discovery (default: worldwideswarm.net).
+    #[arg(long, value_name = "DOMAIN")]
+    bootstrap_domain: Option<String>,
+
+    /// Disable built-in default bootstrap peers.
+    #[arg(long)]
+    no_default_bootstrap: bool,
 }
 
 #[tokio::main]
@@ -101,6 +109,12 @@ async fn main() -> anyhow::Result<()> {
     }
     if !cli.bootstrap.is_empty() {
         config.network.bootstrap_peers = cli.bootstrap;
+    }
+    if let Some(domain) = cli.bootstrap_domain {
+        config.network.bootstrap_domain = domain;
+    }
+    if cli.no_default_bootstrap {
+        config.network.no_default_bootstrap = true;
     }
     if let Some(name) = cli.agent_name {
         config.agent.name = name;
@@ -182,6 +196,14 @@ async fn main() -> anyhow::Result<()> {
     });
     let _signing_key = wws_connector::identity_store::load_or_generate_key(&key_path)?;
     tracing::info!(key_path = %key_path.display(), "Identity key loaded");
+
+    // Resolve bootstrap peers from all sources (CLI, DNS TXT, hardcoded).
+    let resolved_peers = wws_connector::connector::WwsConnector::resolve_all_bootstrap_peers(
+        &config.network.bootstrap_peers,
+        &config.network.bootstrap_domain,
+        config.network.no_default_bootstrap,
+    ).await;
+    config.network.bootstrap_peers = resolved_peers;
 
     // Create the connector.
     let connector = WwsConnector::new(config.clone())?;

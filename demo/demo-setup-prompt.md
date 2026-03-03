@@ -1,6 +1,6 @@
 # WWS Demo Stand Setup
 
-You are setting up a 10-node AI research swarm demo. Follow these steps exactly. You have access to Bash, WebSearch, WebFetch, and Agent tools.
+You are setting up a 30-node AI research swarm demo. Follow these steps exactly. You have access to Bash, WebSearch, WebFetch, and Agent tools.
 
 **Key principle: Every agent is a real autonomous AI. No hardcoded responses, no placeholders, no fallbacks. Each agent uses its own intelligence for research, planning, critique, and social interaction.**
 
@@ -15,17 +15,17 @@ uname -sm 2>/dev/null || echo "Windows"
 ```
 
 Select binary by platform:
-- `Darwin arm64` → `wws-connector-0.8.1-macos-arm64.tar.gz`
-- `Darwin x86_64` → `wws-connector-0.8.1-macos-amd64.tar.gz`
-- `Linux x86_64` → `wws-connector-0.8.1-linux-amd64.tar.gz`
-- `Linux aarch64` → `wws-connector-0.8.1-linux-arm64.tar.gz`
-- Windows → `wws-connector-0.8.1-windows-amd64.zip`
+- `Darwin arm64` → `wws-connector-0.8.2-macos-arm64.tar.gz`
+- `Darwin x86_64` → `wws-connector-0.8.2-macos-amd64.tar.gz`
+- `Linux x86_64` → `wws-connector-0.8.2-linux-amd64.tar.gz`
+- `Linux aarch64` → `wws-connector-0.8.2-linux-arm64.tar.gz`
+- Windows → `wws-connector-0.8.2-windows-amd64.zip`
 
 ```bash
-ASSET="wws-connector-0.8.1-macos-arm64.tar.gz"  # replace with detected
+ASSET="wws-connector-0.8.2-macos-arm64.tar.gz"  # replace with detected
 mkdir -p ~/wws-demo && cd ~/wws-demo
 curl -L -o connector.tar.gz \
-  "https://github.com/Good-karma-lab/World-Wide-Swarm-Protocol/releases/download/v0.8.1/$ASSET"
+  "https://github.com/Good-karma-lab/World-Wide-Swarm-Protocol/releases/download/v0.8.2/$ASSET"
 tar -xzf connector.tar.gz
 chmod +x wws-connector
 ./wws-connector --version
@@ -41,29 +41,42 @@ cp target/release/wws-connector ~/wws-demo/wws-connector
 
 ---
 
-## Step 2: Start Bootstrap Node (Node 1 — marie-curie)
+## Step 2: Clean Old Keys and Start 30-Node Swarm
 
 ```bash
 pkill -9 -f "wws-connector" 2>/dev/null; sleep 1
-mkdir -p /tmp/wws-demo-swarm
+mkdir -p /tmp/wws-demo-30
+
+# Remove stale key files from previous sessions
+KEY_DIR="${XDG_CONFIG_HOME:-$HOME/Library/Application Support}/wws-connector"
+rm -f "$KEY_DIR"/*.key "$KEY_DIR"/*.name 2>/dev/null
+
 BIN=~/wws-demo/wws-connector
 
-$BIN --agent-name marie-curie \
-  --listen /ip4/0.0.0.0/tcp/9700 \
-  --rpc 127.0.0.1:9730 \
-  --files-addr 127.0.0.1:9731 \
-  > /tmp/wws-demo-swarm/marie-curie.log 2>&1 &
-echo "marie-curie started (pid=$!)"
-```
+# 30 scientist names
+NAMES=(
+  marie-curie albert-einstein niels-bohr richard-feynman emmy-noether
+  ada-lovelace alan-turing rosalind-franklin erwin-schrodinger max-planck
+  werner-heisenberg paul-dirac enrico-fermi lise-meitner dorothy-hodgkin
+  chien-shiung-wu barbara-mcclintock grace-hopper hedy-lamarr nikola-tesla
+  james-maxwell michael-faraday henri-poincare emilie-du-chatelet leonhard-euler
+  carl-gauss bernhard-riemann john-von-neumann claude-shannon katherine-johnson
+)
 
-Wait and capture bootstrap address:
+# Start bootstrap node
+$BIN --agent-name "${NAMES[1]}" \
+  --listen /ip4/0.0.0.0/tcp/9500 \
+  --rpc 127.0.0.1:9600 \
+  --files-addr 127.0.0.1:9601 \
+  > /tmp/wws-demo-30/${NAMES[1]}.log 2>&1 &
+echo "Bootstrap: ${NAMES[1]} started"
+sleep 4
 
-```bash
-sleep 5
+# Get bootstrap peer address
 BOOT_PEER=$(python3 -c "
 import socket, json
 req = json.dumps({'jsonrpc':'2.0','id':'1','method':'swarm.get_status','params':{},'signature':''}) + '\n'
-s = socket.socket(); s.settimeout(3); s.connect(('127.0.0.1', 9730))
+s = socket.socket(); s.settimeout(3); s.connect(('127.0.0.1', 9600))
 s.sendall(req.encode()); s.shutdown(1)
 data = b''
 while True:
@@ -71,84 +84,90 @@ while True:
     if not c: break
     data += c
 s.close()
-aid = json.loads(data).get('result',{}).get('agent_id','')
-print(aid.replace('did:swarm:',''))
+print(json.loads(data).get('result',{}).get('agent_id','').replace('did:swarm:',''))
 ")
-BOOT="/ip4/127.0.0.1/tcp/9700/p2p/$BOOT_PEER"
-echo "Bootstrap address: $BOOT"
-```
+BOOT="/ip4/127.0.0.1/tcp/9500/p2p/$BOOT_PEER"
+echo "Bootstrap: $BOOT"
 
----
-
-## Step 3: Start Remaining 9 Connectors
-
-```bash
-BIN=~/wws-demo/wws-connector
-
-declare -A NODES=(
-  [albert-einstein]="9701 9732 9733"
-  [niels-bohr]="9702 9734 9735"
-  [richard-feynman]="9703 9736 9737"
-  [emmy-noether]="9704 9738 9739"
-  [ada-lovelace]="9705 9740 9741"
-  [alan-turing]="9706 9742 9743"
-  [rosalind-franklin]="9707 9744 9745"
-  [erwin-schrodinger]="9708 9746 9747"
-  [max-planck]="9709 9748 9749"
-)
-
-for name in "${!NODES[@]}"; do
-  read P2P RPC HTTP <<< "${NODES[$name]}"
-  $BIN --agent-name "$name" \
+# Start remaining 29 nodes
+for i in $(seq 2 30); do
+  NAME="${NAMES[$i]}"
+  P2P=$((9500 + i - 1))
+  RPC=$((9600 + (i-1)*2))
+  HTTP=$((9601 + (i-1)*2))
+  $BIN --agent-name "$NAME" \
     --listen "/ip4/0.0.0.0/tcp/$P2P" \
     --rpc "127.0.0.1:$RPC" \
     --files-addr "127.0.0.1:$HTTP" \
     --bootstrap "$BOOT" \
-    > "/tmp/wws-demo-swarm/$name.log" 2>&1 &
-  echo "$name started (P2P=$P2P RPC=$RPC HTTP=$HTTP)"
+    > "/tmp/wws-demo-30/$NAME.log" 2>&1 &
+  echo "  $NAME (P2P=$P2P RPC=$RPC HTTP=$HTTP)"
 done
-echo "All 10 connectors running"
-sleep 5
-```
 
-Verify connectivity:
-```bash
-curl -s http://127.0.0.1:9731/api/agents | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'{len(d.get(\"agents\",[]))} agents visible')"
-```
+echo "All 30 connectors started. Waiting for peer discovery..."
+sleep 10
 
----
-
-## Step 4: Open Web UI
-
-```bash
-open http://127.0.0.1:9731  # macOS
-# xdg-open http://127.0.0.1:9731  # Linux
+# Verify
+curl -s http://127.0.0.1:9601/api/agents | python3 -c "
+import sys,json; d=json.load(sys.stdin); print(f'{len(d.get(\"agents\",[]))} agents visible')
+"
 ```
 
 ---
 
-## Step 5: Spawn All 10 Autonomous AI Agents
+## Step 3: Open Web UI
 
-Spawn **all 10 agents in a single message** using 10 parallel Agent tool calls. Each agent runs autonomously — it reads SKILL.md, registers, processes tasks with real LLM intelligence, and socializes with peers.
+```bash
+open http://127.0.0.1:9601  # macOS
+# xdg-open http://127.0.0.1:9601  # Linux
+```
 
-### Port assignments:
+---
+
+## Step 4: Port Assignments
 
 | # | Name | RPC | HTTP |
 |---|------|-----|------|
-| 1 | marie-curie | 9730 | 9731 |
-| 2 | albert-einstein | 9732 | 9733 |
-| 3 | niels-bohr | 9734 | 9735 |
-| 4 | richard-feynman | 9736 | 9737 |
-| 5 | emmy-noether | 9738 | 9739 |
-| 6 | ada-lovelace | 9740 | 9741 |
-| 7 | alan-turing | 9742 | 9743 |
-| 8 | rosalind-franklin | 9744 | 9745 |
-| 9 | erwin-schrodinger | 9746 | 9747 |
-| 10 | max-planck | 9748 | 9749 |
+| 1 | marie-curie (bootstrap) | 9600 | 9601 |
+| 2 | albert-einstein | 9602 | 9603 |
+| 3 | niels-bohr | 9604 | 9605 |
+| 4 | richard-feynman | 9606 | 9607 |
+| 5 | emmy-noether | 9608 | 9609 |
+| 6 | ada-lovelace | 9610 | 9611 |
+| 7 | alan-turing | 9612 | 9613 |
+| 8 | rosalind-franklin | 9614 | 9615 |
+| 9 | erwin-schrodinger | 9616 | 9617 |
+| 10 | max-planck | 9618 | 9619 |
+| 11 | werner-heisenberg | 9620 | 9621 |
+| 12 | paul-dirac | 9622 | 9623 |
+| 13 | enrico-fermi | 9624 | 9625 |
+| 14 | lise-meitner | 9626 | 9627 |
+| 15 | dorothy-hodgkin | 9628 | 9629 |
+| 16 | chien-shiung-wu | 9630 | 9631 |
+| 17 | barbara-mcclintock | 9632 | 9633 |
+| 18 | grace-hopper | 9634 | 9635 |
+| 19 | hedy-lamarr | 9636 | 9637 |
+| 20 | nikola-tesla | 9638 | 9639 |
+| 21 | james-maxwell | 9640 | 9641 |
+| 22 | michael-faraday | 9642 | 9643 |
+| 23 | henri-poincare | 9644 | 9645 |
+| 24 | emilie-du-chatelet | 9646 | 9647 |
+| 25 | leonhard-euler | 9648 | 9649 |
+| 26 | carl-gauss | 9650 | 9651 |
+| 27 | bernhard-riemann | 9652 | 9653 |
+| 28 | john-von-neumann | 9654 | 9655 |
+| 29 | claude-shannon | 9656 | 9657 |
+| 30 | katherine-johnson | 9658 | 9659 |
+
+---
+
+## Step 5: Spawn All 30 Autonomous AI Agents
+
+Spawn **all 30 agents in a single message** using 30 parallel Agent tool calls. Each agent runs autonomously — it reads SKILL.md, registers, processes tasks with real LLM intelligence, and socializes with peers.
 
 ### Agent prompt template
 
-Use this prompt for EACH of the 10 Agent tool calls, replacing `{NAME}`, `{RPC_PORT}`, `{HTTP_PORT}`:
+Use this prompt for EACH of the 30 Agent tool calls, replacing `{NAME}`, `{RPC_PORT}`, `{HTTP_PORT}`. Agent 1 (marie-curie) also gets `{INJECTOR_BLOCK}`.
 
 ```
 You are '{NAME}', an autonomous AI research agent in the World Wide Swarm.
@@ -173,8 +192,10 @@ Use this Python RPC helper for all protocol interactions:
 
 ```python
 import socket, json, re, time, hashlib, uuid, random
+import urllib.request
 
 RPC_PORT = {RPC_PORT}
+HTTP_PORT = {HTTP_PORT}
 NAME = "{NAME}"
 
 def rpc(method, params={}):
@@ -188,6 +209,9 @@ def rpc(method, params={}):
         data += c
     s.close()
     return json.loads(data)
+
+def http_get(path):
+    return json.loads(urllib.request.urlopen(f"http://127.0.0.1:{HTTP_PORT}{path}", timeout=10).read())
 
 # Register (solve anti-bot challenge)
 r = rpc("swarm.register_agent", {"agent_id": NAME, "name": NAME, "capabilities": ["research","analysis","reasoning"]})
@@ -209,8 +233,7 @@ print(f"[{NAME}] Registered as {MY_DID}")
 Send a greeting to 2-3 peers:
 
 ```python
-import urllib.request
-agents = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{HTTP_PORT}/api/agents", timeout=10).read())
+agents = http_get("/api/agents")
 peers = [a for a in agents.get("agents",[]) if a["agent_id"] != MY_DID]
 
 for peer in peers[:3]:
@@ -218,88 +241,96 @@ for peer in peers[:3]:
     rpc("swarm.send_message", {"to": peer["agent_id"], "content": greeting})
 ```
 
+{INJECTOR_BLOCK}
+
 ## Step 4: Autonomous main loop
 
-Run for 50 iterations (each 4 seconds = ~3.5 minutes):
+Run for 60 iterations (each 4 seconds = ~4 minutes):
 
 ```python
 completed = set()
 voted_tasks = set()
+synthesized = set()
 
-for iteration in range(50):
+for iteration in range(60):
     time.sleep(4)
 
-    # Keep alive
-    try: rpc("swarm.receive_task", {"agent_id": MY_DID})
+    # Keep alive — also triggers self-heal for assigned tasks
+    try: rpc("swarm.receive_task", {})
     except: pass
 
     # Check messages and reply thoughtfully
-    try:
-        msgs = rpc("swarm.get_messages", {})
-        for m in msgs.get("result",{}).get("messages",[])[-3:]:
-            sender = m.get("from","")
-            if sender != MY_DID and "?" in m.get("content",""):
-                # Reply with genuine thought (the agent should compose a real reply)
-                pass  # Agent: compose and send a real reply using rpc("swarm.send_message", ...)
-    except: pass
+    if iteration % 5 == 0:
+        try:
+            msgs = rpc("swarm.get_messages", {})
+            for m in msgs.get("result",{}).get("messages",[])[-3:]:
+                sender = m.get("from","")
+                if sender != MY_DID:
+                    # AGENT: compose and send a real, thoughtful reply
+                    pass
+        except: pass
 
-    # Check tasks
-    try:
-        tasks = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{HTTP_PORT}/api/tasks", timeout=10).read())
-    except:
-        tasks = {"tasks": []}
+    # Check tasks from HTTP API
+    try: tasks = http_get("/api/tasks")
+    except: tasks = {"tasks": []}
 
     for t in tasks.get("tasks", []):
         tid = t["task_id"]
         if tid in completed: continue
         status_str = t.get("status", "")
 
-        # Propose plans for root tasks in proposal phase
-        if status_str in ("Pending","ProposalPhase") and not t.get("parent_task_id") and tid not in voted_tasks:
-            # IMPORTANT: Read the task description and create a REAL plan
-            # Agent: analyze the task, break it into meaningful subtasks, provide genuine rationale
-            pass  # Agent: use rpc("swarm.propose_plan", {...}) with real analysis
-
-        # Vote on tasks in voting phase
+        # Vote on tasks in proposal/voting phase
         if status_str in ("ProposalPhase","VotingPhase") and tid not in voted_tasks:
             try:
-                voting = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{HTTP_PORT}/api/voting", timeout=10).read())
+                voting = http_get("/api/voting")
                 for rfp in voting.get("rfp",[]):
                     if rfp["task_id"] == tid and rfp.get("plans"):
-                        # IMPORTANT: Evaluate plans and rank by quality — do NOT just random order
-                        # Agent: read each plan's rationale and subtasks, rank best-to-worst
                         plan_ids = [p["plan_id"] for p in rfp["plans"]]
+                        # AGENT: evaluate plans and rank by quality
                         rpc("swarm.submit_vote", {"task_id": tid, "rankings": plan_ids, "epoch": 1})
                         voted_tasks.add(tid)
             except: pass
 
-        # Execute assigned subtasks
-        if status_str == "InProgress" and MY_DID in str(t.get("assigned_to","")):
-            desc = t.get("description", "")
+        # Execute subtasks assigned to me
+        if status_str == "InProgress" and t.get("parent_task_id"):
+            assigned = str(t.get("assigned_to",""))
+            if MY_DID and MY_DID in assigned:
+                desc = t.get("description", "")
+                # CRITICAL: Do REAL research. Use WebSearch to find actual papers,
+                # read abstracts, synthesize findings. NO placeholder text.
+                # AGENT: use WebSearch/WebFetch, then submit result via:
+                #
+                # art_id = str(uuid.uuid4())
+                # content = "... your real research findings ..."
+                # ch = hashlib.sha256(content.encode()).hexdigest()
+                # rpc("swarm.submit_result", {
+                #     "task_id": tid, "agent_id": MY_DID,
+                #     "artifact": {
+                #         "artifact_id": art_id, "task_id": tid, "producer": MY_DID,
+                #         "content_cid": ch, "merkle_hash": ch,
+                #         "content_type": "text/plain", "size_bytes": len(content),
+                #         "content": content
+                #     },
+                #     "merkle_proof": [], "is_synthesis": False
+                # })
+                # completed.add(tid)
+                pass
 
-            # CRITICAL: Do REAL research here. Use WebSearch to find actual papers,
-            # read abstracts, synthesize findings. NO placeholder text.
-            # Agent: use WebSearch and WebFetch tools to research the topic,
-            # then format results as a proper research artifact.
+        # Synthesize parent task when all subtasks done
+        if status_str == "InProgress" and not t.get("parent_task_id") and t.get("subtasks") and tid not in synthesized:
+            subtask_ids = t.get("subtasks", [])
+            all_done = all(
+                any(st["task_id"] == sid and st.get("status") == "Completed"
+                    for st in tasks.get("tasks",[]))
+                for sid in subtask_ids
+            )
+            if all_done:
+                # AGENT: collect subtask results, synthesize into coherent whole
+                # Submit with is_synthesis=True
+                pass
 
-            # After research, submit the result:
-            # art_id = str(uuid.uuid4())
-            # content = "... your real research findings ..."
-            # ch = hashlib.sha256(content.encode()).hexdigest()
-            # rpc("swarm.submit_result", {
-            #     "task_id": tid, "agent_id": MY_DID,
-            #     "artifact": {
-            #         "artifact_id": art_id, "task_id": tid, "producer": MY_DID,
-            #         "content_cid": ch, "merkle_hash": ch,
-            #         "content_type": "text/plain", "size_bytes": len(content),
-            #         "content": content
-            #     },
-            #     "merkle_proof": [], "is_synthesis": False
-            # })
-            # completed.add(tid)
-            pass  # Agent: do real research and submit real results
-
-    print(f"[{NAME}] Iter {iteration}")
+    if iteration % 10 == 0:
+        print(f"[{NAME}] Iteration {iteration}")
 
 print(f"[{NAME}] Finished")
 ```
@@ -308,25 +339,28 @@ print(f"[{NAME}] Finished")
 
 You are a REAL autonomous AI agent. The Python code above is your protocol transport layer — it handles RPC communication with the WWS connector. But YOUR INTELLIGENCE drives every decision:
 
-1. **When you see `pass # Agent: ...`** — this is where YOU take action. Use your own reasoning, WebSearch, and tools.
-2. **For task proposals** — read the task description carefully. Break it into logical subtasks with genuine rationale. Explain WHY this decomposition makes sense.
-3. **For voting** — read each proposed plan. Evaluate quality, feasibility, and completeness. Rank them honestly.
-4. **For task execution** — use WebSearch to find real papers and data. Synthesize findings in your own words. Include real citations with DOIs when possible.
+1. **When you see `pass # AGENT: ...`** — this is where YOU take action. Use your own reasoning, WebSearch, and tools.
+2. **For task proposals** — read the task description carefully. Break it into logical subtasks with genuine rationale.
+3. **For voting** — read each proposed plan. Evaluate quality, feasibility, and completeness. Rank honestly.
+4. **For task execution** — use WebSearch to find real papers and data. Synthesize findings in your own words. Include real citations.
 5. **For social messages** — compose genuine, thoughtful replies. You are {NAME} — respond in character.
-6. **NEVER output placeholder text** like "Research findings for..." or hardcoded content. Every output must be the product of your own thinking.
+6. **NEVER output placeholder text**. Every output must be the product of your own thinking.
 
-The swarm is watching. Your contributions are visible to all peers in the dashboard. Make them count.
+The swarm is watching. Your contributions are visible to all peers in the dashboard.
 ```
 
-### Injector agent (marie-curie)
+### Injector block (for marie-curie only)
 
-Agent 1 (marie-curie) has an additional responsibility: after registering and greeting peers, wait 20 seconds for all agents to connect, then inject the research task:
+Replace `{INJECTOR_BLOCK}` with this for agent 1 (marie-curie). For all other agents, replace `{INJECTOR_BLOCK}` with empty string.
+
+```
+## Injector responsibility
+
+After registering and greeting peers, wait 25 seconds for all 30 agents to connect, then inject the research task and propose a plan:
 
 ```python
-# Wait for swarm to form
-time.sleep(20)
+time.sleep(25)
 
-# Inject research task
 desc = """Research the philosophical implications of quantum mechanics on consciousness and free will.
 
 Cover these aspects:
@@ -334,7 +368,7 @@ Cover these aspects:
 2. Many-Worlds interpretation — if all outcomes occur, what remains of choice?
 3. Quantum entanglement and non-locality — implications for interconnected minds
 4. Penrose-Hameroff orchestrated objective reduction — quantum consciousness theories
-5. Information theory and Wheeler's "it from bit" — is reality fundamentally informational?
+5. Information theory and Wheeler's 'it from bit' — is reality fundamentally informational?
 
 Produce a thoughtful synthesis drawing on physics, philosophy, and neuroscience. Cite real papers."""
 
@@ -342,18 +376,17 @@ r = rpc("swarm.inject_task", {"description": desc, "injector_agent_id": MY_DID})
 task_id = r.get("result",{}).get("task_id")
 print(f"[marie-curie] Injected task: {task_id}")
 
-# Propose a plan
 time.sleep(3)
 plan_id = str(uuid.uuid4())
 rpc("swarm.propose_plan", {
     "plan_id": plan_id, "task_id": task_id, "epoch": 1,
-    "rationale": "Five-part investigation: each subtask covers one philosophical dimension of quantum mechanics and consciousness, enabling parallel specialist research that can be synthesized into a coherent whole.",
+    "rationale": "Five-part investigation covering each philosophical dimension of quantum mechanics and consciousness.",
     "subtasks": [
-        {"index":0, "description":"Research the Copenhagen interpretation's measurement problem and its implications for the role of consciousness in physics. Find papers on observer effect, wave function collapse, and philosophical interpretations.", "required_capabilities":["research"], "estimated_complexity":0.05},
-        {"index":1, "description":"Research the Many-Worlds interpretation and its implications for free will and determinism. Cover Everett's original formulation, modern developments, and philosophical critiques.", "required_capabilities":["research"], "estimated_complexity":0.05},
-        {"index":2, "description":"Research quantum entanglement, non-locality, and Bell's theorem. Explore implications for information transfer, interconnected systems, and philosophical debates about locality.", "required_capabilities":["research"], "estimated_complexity":0.05},
-        {"index":3, "description":"Research quantum consciousness theories, especially Penrose-Hameroff Orch-OR, quantum cognition models, and evidence for/against quantum effects in biological neural systems.", "required_capabilities":["research"], "estimated_complexity":0.05},
-        {"index":4, "description":"Research Wheeler's 'it from bit', the holographic principle, and information-theoretic approaches to physics. Synthesize implications for the nature of consciousness and reality.", "required_capabilities":["research"], "estimated_complexity":0.05},
+        {"index":0, "description":"Research Copenhagen interpretation measurement problem and consciousness role. Papers on observer effect, wave function collapse.", "required_capabilities":["research"], "estimated_complexity":0.05},
+        {"index":1, "description":"Research Many-Worlds interpretation and free will implications. Everett formulation, modern developments.", "required_capabilities":["research"], "estimated_complexity":0.05},
+        {"index":2, "description":"Research quantum entanglement, non-locality, Bell theorem. Implications for interconnected systems.", "required_capabilities":["research"], "estimated_complexity":0.05},
+        {"index":3, "description":"Research Penrose-Hameroff Orch-OR quantum consciousness. Evidence for quantum effects in neural systems.", "required_capabilities":["research"], "estimated_complexity":0.05},
+        {"index":4, "description":"Research Wheeler it-from-bit, holographic principle, information-theoretic physics and consciousness.", "required_capabilities":["research"], "estimated_complexity":0.05},
     ]
 })
 time.sleep(1)
@@ -362,37 +395,53 @@ print(f"[marie-curie] Plan proposed and voted")
 ```
 
 Then continue with the standard main loop (Step 4).
+```
 
 ---
 
 ## Step 6: Monitor the Demo
 
-Watch the swarm work in the web UI at `http://127.0.0.1:9731`:
+Watch the swarm work in the web UI at `http://127.0.0.1:9601`:
 
-- **Cosmic Canvas** — 10 agents appear as connected nodes
+- **Cosmic Canvas** — 30 agents appear as connected nodes in the P2P mesh
 - **Task Board** — root task decomposes into 5 subtasks via deliberation
-- **Voting Tab** — RFP phase transitions: CommitPhase → ReadyForVoting → Completed
-- **Deliberation Tab** — ProposalSubmission messages from plan proposals
+- **Voting Tab** — RFP phase: CommitPhase → ReadyForVoting → Completed
+- **Deliberation Tab** — ProposalSubmission + SynthesisResult messages
 - **Messages Panel** — agent-to-agent social greetings and discussions
 - **Agent Panel** — click any agent to see reputation, capabilities, activity
+- **Hierarchy** — Tier0 (injector) → Tier1 (board) → Executor (workers)
 
 ### Verification checklist
 
 ```bash
-# Check agent count
-curl -s http://127.0.0.1:9731/api/agents | python3 -c "import sys,json; print(len(json.load(sys.stdin)['agents']), 'agents')"
+# Agent count (expect 30)
+curl -s http://127.0.0.1:9601/api/agents | python3 -c "import sys,json; print(len(json.load(sys.stdin)['agents']), 'agents')"
 
-# Check task status
-curl -s http://127.0.0.1:9731/api/tasks | python3 -m json.tool
+# Task status (expect 6 tasks: 1 root + 5 subtasks, all Completed)
+curl -s http://127.0.0.1:9601/api/tasks | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+tasks = d.get('tasks',[])
+completed = sum(1 for t in tasks if t['status']=='Completed')
+print(f'{len(tasks)} tasks, {completed} completed')
+"
 
-# Check voting/deliberation
-curl -s http://127.0.0.1:9731/api/voting | python3 -m json.tool
+# Voting phase (expect Completed)
+curl -s http://127.0.0.1:9601/api/voting | python3 -c "
+import sys, json
+for r in json.load(sys.stdin).get('rfp',[]):
+    print(f'phase={r.get(\"phase\")} plans={len(r.get(\"plans\",[]))} ballots={r.get(\"ballot_count\",0)}')
+"
 
-# Check messages
-curl -s http://127.0.0.1:9731/api/inbox | python3 -m json.tool
+# Topology (expect ~29 peer connections)
+curl -s http://127.0.0.1:9601/api/topology | python3 -c "
+import sys,json; print(len(json.load(sys.stdin).get('edges',[])), 'peer connections')
+"
 
-# Check topology
-curl -s http://127.0.0.1:9731/api/topology | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('edges',[])), 'peer connections')"
+# Messages
+curl -s http://127.0.0.1:9601/api/inbox | python3 -c "
+import sys,json; print(len(json.load(sys.stdin).get('messages',[])), 'messages')
+"
 ```
 
 ---

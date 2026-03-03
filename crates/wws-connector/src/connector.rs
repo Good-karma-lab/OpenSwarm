@@ -1683,6 +1683,11 @@ impl WwsConnector {
                 {
                     let mut state = self.state.write().await;
                     if let Some(task) = state.task_details.get(&params.task_id) {
+                        // Idempotency: skip if already completed (result arrives on
+                        // both the task-specific and tier-based topics).
+                        if matches!(task.status, TaskStatus::Completed) {
+                            return;
+                        }
                         if task.assigned_to.as_ref() != Some(&params.agent_id) {
                             state.push_log(
                                 LogCategory::Task,

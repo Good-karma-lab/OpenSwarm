@@ -1340,20 +1340,33 @@ pub(crate) async fn handle_submit_result(
         nodes
     };
 
-    // Publish result to the results topic.
-    let swarm_id = {
+    // Publish result to both the task-specific results topic and the tier-based
+    // task topic so all nodes (not just coordinator + assignee) learn about
+    // subtask completion.
+    let (swarm_id, task_tier) = {
         let state = state.read().await;
-        state.current_swarm_id.as_str().to_string()
+        let tier = state
+            .task_details
+            .get(&submission.task_id)
+            .map(|t| t.tier_level)
+            .unwrap_or(1);
+        (state.current_swarm_id.as_str().to_string(), tier)
     };
-    let topic = SwarmTopics::results_for(&swarm_id, &submission.task_id);
     let msg = SwarmMessage::new(
         ProtocolMethod::ResultSubmission.as_str(),
         serde_json::to_value(&submission).unwrap_or_default(),
         String::new(),
     );
     if let Ok(data) = serde_json::to_vec(&msg) {
-        if let Err(e) = network_handle.publish(&topic, data).await {
-            tracing::warn!(error = %e, "Failed to publish result");
+        // Task-specific results topic (coordinator + assignee subscribe)
+        let topic = SwarmTopics::results_for(&swarm_id, &submission.task_id);
+        if let Err(e) = network_handle.publish(&topic, data.clone()).await {
+            tracing::warn!(error = %e, "Failed to publish result to results topic");
+        }
+        // Tier-based topic (all nodes subscribe) — enables swarm-wide status sync
+        let tier_topic = SwarmTopics::tasks_for(&swarm_id, task_tier);
+        if let Err(e) = network_handle.publish(&tier_topic, data).await {
+            tracing::warn!(error = %e, "Failed to publish result to tier topic");
         }
     }
 
@@ -1378,6 +1391,23 @@ async fn handle_receive_task(
     state.mark_member_polled_tasks(my_id.as_str());
     let my_tier = state.my_tier;
     let my_tier_level = my_tier.depth();
+
+    // Self-heal: tasks assigned to us that arrived via GossipSub but were not
+    // added to task_set (e.g. due to race conditions) should be recovered.
+    let heal_ids: Vec<String> = state
+        .task_details
+        .values()
+        .filter(|t| {
+            t.assigned_to.as_ref() == Some(&my_id)
+                && matches!(t.status, TaskStatus::InProgress | TaskStatus::Pending)
+                && !state.task_set.contains(&t.task_id)
+        })
+        .map(|t| t.task_id.clone())
+        .collect();
+    for tid in &heal_ids {
+        state.task_set.add(tid.clone());
+        tracing::info!(task_id = %tid, "Self-healed: added assigned task to task_set");
+    }
 
     let mut tasks: Vec<&Task> = state
         .task_details

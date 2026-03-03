@@ -711,7 +711,7 @@ export default function CosmicCanvas({ agents, holons, topology, onNodeClick }) 
   return (
     <canvas
       ref={canvasRef}
-      style={{ position: 'absolute', inset: 0, display: 'block' }}
+      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'block' }}
       onClick={handleClick}
       onMouseMove={handleMouseMove}
     />

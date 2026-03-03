@@ -104,8 +104,8 @@ function buildConnections(nodes, topoEdges) {
   nodes.forEach((n, i) => {
     if (n.type === 'agent' && hasTopology) {
       const connected = topoEdges
-        .filter(e => e.from === n.id || e.to === n.id)
-        .map(e => idToIdx[e.from === n.id ? e.to : e.from])
+        .filter(e => e.source === n.id || e.target === n.id)
+        .map(e => idToIdx[e.source === n.id ? e.target : e.source])
         .filter(j => j !== undefined && j !== i)
       // Deduplicate
       n.connections = [...new Set(connected)]
@@ -711,7 +711,7 @@ export default function CosmicCanvas({ agents, holons, topology, onNodeClick }) 
   return (
     <canvas
       ref={canvasRef}
-      style={{ width: '100%', height: '100%', display: 'block' }}
+      style={{ position: 'absolute', inset: 0, display: 'block' }}
       onClick={handleClick}
       onMouseMove={handleMouseMove}
     />

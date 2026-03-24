@@ -164,6 +164,11 @@ enum SwarmCommand {
         swarm_id: String,
         reply: oneshot::Sender<Result<(), NetworkError>>,
     },
+    /// Add a peer to the gossipsub explicit peer list so it is immediately
+    /// GRAFTed without waiting for the heartbeat. Keeps connection alive.
+    AddExplicitGossipPeer {
+        peer_id: PeerId,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +238,16 @@ impl SwarmHandle {
             .await
             .map_err(|_| NetworkError::ChannelClosed)?;
         rx.await.map_err(|_| NetworkError::ChannelClosed)?
+    }
+
+    /// Add a peer to the gossipsub explicit peer list.
+    /// This immediately GRAFTs the peer on the next gossipsub action,
+    /// keeping the connection alive without waiting for the 1s heartbeat.
+    pub async fn add_explicit_gossip_peer(&self, peer_id: PeerId) -> Result<(), NetworkError> {
+        self.command_tx
+            .send(SwarmCommand::AddExplicitGossipPeer { peer_id })
+            .await
+            .map_err(|_| NetworkError::ChannelClosed)
     }
 
     /// Add a known address for a peer (without dialing).
@@ -720,6 +735,13 @@ impl SwarmHost {
                         &swarm_id,
                     );
                 let _ = reply.send(result);
+            }
+            SwarmCommand::AddExplicitGossipPeer { peer_id } => {
+                self.swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .add_explicit_peer(&peer_id);
+                tracing::debug!(peer = %peer_id, "Added explicit gossipsub peer");
             }
         }
     }

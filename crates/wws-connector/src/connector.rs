@@ -853,6 +853,14 @@ impl WwsConnector {
         // Connect to bootstrap peers to join the swarm network immediately.
         self.connect_to_bootstrap_peers().await;
 
+        // Add bootstrap peers as explicit gossipsub peers so they are immediately
+        // GRAFTed and the connection is kept alive (even through NAT traversal).
+        // Without this, connections to bootstrap peers close before the gossipsub
+        // heartbeat (1s) fires, preventing name/message propagation.
+        for (peer_id, _) in &Self::parse_bootstrap_peers(&self.config.network.bootstrap_peers) {
+            let _ = self.network_handle.add_explicit_gossip_peer(*peer_id).await;
+        }
+
         // Initiate Kademlia bootstrap to populate the DHT routing table.
         if !self.config.network.bootstrap_peers.is_empty() {
             if let Err(e) = self.network_handle.bootstrap().await {

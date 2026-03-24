@@ -2936,9 +2936,14 @@ impl WwsConnector {
             }
         }
 
-        // Update parent task with subtask IDs
+        // Update parent task with subtask IDs and clear direct assignment.
+        // Once a task has subtasks, it becomes a coordination task awaiting
+        // subtask results — it is no longer directly executable by the original
+        // assignee.  Clearing `assigned_to` prevents the agent from attempting
+        // to submit a result before subtasks finish (error -32010).
         if let Some(parent_task) = state.task_details.get_mut(task_id) {
             parent_task.subtasks = subtask_ids.clone();
+            parent_task.assigned_to = None;
         }
 
         state.push_log(

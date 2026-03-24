@@ -716,6 +716,23 @@ pub(crate) async fn handle_propose_plan(
             ..Default::default()
         });
 
+        // If a plan is proposed for a task that was previously assigned for
+        // direct execution (low-complexity path), transition it to ProposalPhase
+        // and clear the direct assignment.  The agent is re-decomposing the task
+        // instead of executing it directly, so the task becomes a coordination
+        // task that will get subtasks after voting completes.
+        if let Some(existing) = state.task_details.get_mut(&plan.task_id) {
+            if existing.status == TaskStatus::InProgress && existing.assigned_to.is_some() {
+                tracing::info!(
+                    task_id = %plan.task_id,
+                    previous_assignee = ?existing.assigned_to,
+                    "Task re-decomposed via propose_plan: clearing direct assignment, transitioning to ProposalPhase"
+                );
+                existing.status = TaskStatus::ProposalPhase;
+                existing.assigned_to = None;
+            }
+        }
+
         let task_tier_level = state
             .task_details
             .get(&plan.task_id)

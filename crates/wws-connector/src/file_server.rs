@@ -10,7 +10,7 @@ use axum::extract::{Path as AxumPath, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::stream::Stream;
 use serde::Deserialize;
@@ -117,6 +117,7 @@ impl FileServer {
             .route("/api/receipts/:receipt_id", get(api_receipt_detail))
             .route("/api/clarifications", get(api_clarifications))
             .route("/api/events", get(api_events))
+            .route("/api/peers/announce", post(api_peers_announce))
             .nest_service("/assets", assets_service)
             .fallback(spa_index)
             .with_state(web_state);
@@ -1186,6 +1187,28 @@ async fn api_identity(State(web): State<WebState>) -> Json<serde_json::Value> {
         "tier": format!("{:?}", s.my_tier),
         "name": name,
     }))
+}
+
+/// Accepts a peer name announcement from a remote agent.
+/// Allows agents that can't maintain long-lived P2P connections to
+/// register their human-readable name directly via HTTP.
+async fn api_peers_announce(
+    State(web): State<WebState>,
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let peer_id = body.get("peer_id").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    if peer_id.is_empty() || name.is_empty() {
+        return Json(serde_json::json!({"ok": false, "error": "peer_id and name required"}));
+    }
+    let agent_id = if peer_id.starts_with("did:swarm:") {
+        peer_id
+    } else {
+        format!("did:swarm:{}", peer_id)
+    };
+    let mut s = web.state.write().await;
+    s.mark_member_seen_with_name(&agent_id, Some(&name));
+    Json(serde_json::json!({"ok": true}))
 }
 
 async fn api_network(State(web): State<WebState>) -> Json<serde_json::Value> {

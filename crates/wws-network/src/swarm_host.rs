@@ -492,6 +492,14 @@ impl SwarmHost {
                     "Connection established"
                 );
                 self.discovery_manager.add_peer(peer_id);
+                // Add the peer's address to the Kademlia routing table so DHT
+                // queries can reach them.  For outbound connections the remote
+                // address is in `get_remote_address()`.
+                let remote_addr = endpoint.get_remote_address().clone();
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .add_address(&peer_id, remote_addr);
                 let _ = self.event_tx.send(NetworkEvent::PeerConnected(peer_id)).await;
             }
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {

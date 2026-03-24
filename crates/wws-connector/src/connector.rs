@@ -43,11 +43,15 @@ pub const MAX_BLAST_RADIUS: u32 = 200;
 /// Default bootstrap domain for DNS TXT record discovery.
 pub const DEFAULT_BOOTSTRAP_DOMAIN: &str = "worldwideswarm.net";
 
-/// Hardcoded fallback bootstrap peers compiled into the binary.
-/// Updated each release. These are well-known public WWS nodes.
-/// Format: multiaddr strings with /p2p/<peer_id> suffix.
+/// Fallback bootstrap peers resolved via DNS A record when TXT discovery fails.
+/// Peer ID is omitted — learned during the Noise handshake.
 pub const DEFAULT_BOOTSTRAP_PEERS: &[&str] = &[
-    "/ip4/34.10.57.207/tcp/9000/p2p/12D3KooWHFM1jMcmGV9GMasTY5VZYL3afv1tBxcLGLM3H3iYg3FT",
+    "/dns4/worldwideswarm.net/tcp/9000",
+];
+
+/// HTTP endpoints for the default bootstrap nodes (name announcement).
+pub const DEFAULT_BOOTSTRAP_HTTP: &[&str] = &[
+    "worldwideswarm.net:9371",
 ];
 
 /// Returns the blast radius cost for a rollback_cost string value.
@@ -853,20 +857,9 @@ impl WwsConnector {
         // Connect to bootstrap peers to join the swarm network immediately.
         self.connect_to_bootstrap_peers().await;
 
-        // Add bootstrap peers as explicit gossipsub peers so they are immediately
-        // GRAFTed and the connection is kept alive (even through NAT traversal).
-        // Without this, connections to bootstrap peers close before the gossipsub
-        // heartbeat (1s) fires, preventing name/message propagation.
-        for (peer_id, _) in &Self::parse_bootstrap_peers(&self.config.network.bootstrap_peers) {
-            let _ = self.network_handle.add_explicit_gossip_peer(*peer_id).await;
-        }
-
-        // Initiate Kademlia bootstrap to populate the DHT routing table.
-        if !self.config.network.bootstrap_peers.is_empty() {
-            if let Err(e) = self.network_handle.bootstrap().await {
-                tracing::warn!(error = %e, "Kademlia bootstrap initiation failed");
-            }
-        }
+        // Kademlia bootstrap is deferred until after the first ConnectionEstablished
+        // event, when we know the real peer ID of the bootstrap node.
+        // See: handle_peer_connected() below.
 
         // Update status.
         {
@@ -919,6 +912,9 @@ impl WwsConnector {
                     if !self.config.network.bootstrap_peers.is_empty() {
                         let _ = self.network_handle.bootstrap().await;
                     }
+                    // Announce name via HTTP since P2P connections are too brief
+                    // for Identify or GossipSub to propagate names.
+                    self.announce_name_to_bootstrap_http().await;
                 }
                 _ = voting_check_interval.tick() => {
                     self.check_voting_completion().await;
@@ -970,6 +966,11 @@ impl WwsConnector {
                     .active_member_count(Duration::from_secs(ACTIVE_MEMBER_STALENESS_SECS))
                     as u64;
                 drop(state);
+                // Add the newly connected peer as explicit GossipSub peer so the
+                // connection stays alive (GRAFT happens immediately, before ping/heartbeat).
+                let _ = self.network_handle.add_explicit_gossip_peer(peer).await;
+                // Trigger Kademlia bootstrap now that we have a live connection.
+                let _ = self.network_handle.bootstrap().await;
                 // Send a keepalive immediately so the new peer receives our name
                 // before the connection may close (transient bootstrap connections).
                 self.send_keepalive().await;
@@ -3089,26 +3090,72 @@ impl WwsConnector {
     }
 
     /// Dial bootstrap peers to establish connections immediately on startup.
+    /// The `/p2p/<PeerId>` component is stripped from the multiaddr so we never
+    /// reject a bootstrap connection due to a stale or rotated peer ID.
+    /// The real peer ID is learned from the Noise handshake.
     async fn connect_to_bootstrap_peers(&self) {
         for addr_str in &self.config.network.bootstrap_peers {
             let addr_str = addr_str.trim();
             if addr_str.is_empty() {
                 continue;
             }
-            if let Ok(addr) = addr_str.parse::<Multiaddr>() {
-                match self.network_handle.dial(addr.clone()).await {
+            // Strip /p2p/<PeerId> from the address string so we never reject
+            // a bootstrap connection due to a stale or rotated peer ID.
+            let stripped = if let Some(idx) = addr_str.find("/p2p/") {
+                &addr_str[..idx]
+            } else {
+                addr_str
+            };
+            if let Ok(dial_addr) = stripped.parse::<Multiaddr>() {
+                match self.network_handle.dial(dial_addr.clone()).await {
                     Ok(()) => {
-                        tracing::info!(addr = %addr, "Dialing bootstrap peer");
+                        tracing::info!(addr = %dial_addr, "Dialing bootstrap peer");
                         let mut state = self.state.write().await;
                         state.push_log(
                             LogCategory::System,
-                            format!("Dialing bootstrap peer: {}", addr),
+                            format!("Dialing bootstrap peer: {}", dial_addr),
                         );
                     }
                     Err(e) => {
-                        tracing::warn!(addr = %addr, error = %e, "Failed to dial bootstrap peer");
+                        tracing::warn!(addr = %dial_addr, error = %e, "Failed to dial bootstrap peer");
                     }
                 }
+            }
+        }
+    }
+
+    /// Announce this node's name to bootstrap HTTP endpoints.
+    /// Kademlia bootstrap connections close in <1ms (too fast for Identify/GossipSub),
+    /// so we use a direct HTTP POST to propagate human-readable names.
+    async fn announce_name_to_bootstrap_http(&self) {
+        use tokio::io::AsyncWriteExt;
+
+        let name = self.config.agent.name.clone();
+        if name.is_empty() {
+            return;
+        }
+        let peer_id = self.network_handle.local_peer_id().to_string();
+        let body = format!(r#"{{"peer_id":"{}","name":"{}"}}"#, peer_id, name);
+        let http_hosts: Vec<&str> = DEFAULT_BOOTSTRAP_HTTP.to_vec();
+
+        for host_port in http_hosts {
+            // Don't announce to ourselves (when running as bootstrap)
+            if self.config.agent.name == "bootstrap-1" {
+                continue;
+            }
+            let request = format!(
+                "POST /api/peers/announce HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                host_port, body.len(), body
+            );
+            if let Ok(Ok(mut stream)) = tokio::time::timeout(
+                Duration::from_secs(5),
+                tokio::net::TcpStream::connect(host_port),
+            ).await {
+                let _ = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    stream.write_all(request.as_bytes()),
+                ).await;
+                tracing::debug!(host = %host_port, name = %name, "Announced name to bootstrap HTTP");
             }
         }
     }
@@ -3824,16 +3871,17 @@ mod tests {
 
     #[test]
     fn default_bootstrap_peers_constant_format() {
-        // Each entry (if any) should be a valid multiaddr string with /p2p/
+        // Each entry should be a valid multiaddr string (peer ID optional — learned from Noise).
         for addr_str in DEFAULT_BOOTSTRAP_PEERS {
             assert!(
-                addr_str.contains("/p2p/"),
-                "Hardcoded bootstrap peer should contain /p2p/ component: {}",
+                addr_str.contains("/tcp/") || addr_str.contains("/udp/"),
+                "Hardcoded bootstrap peer should contain a transport component: {}",
                 addr_str
             );
+            addr_str.parse::<Multiaddr>().unwrap_or_else(|e| {
+                panic!("Hardcoded bootstrap peer is not a valid multiaddr: {} — {}", addr_str, e)
+            });
         }
-        // Constant exists and is accessible (compilation test)
-        let _ = DEFAULT_BOOTSTRAP_PEERS.len();
     }
 
     #[tokio::test]

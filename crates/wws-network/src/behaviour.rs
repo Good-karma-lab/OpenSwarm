@@ -76,7 +76,7 @@ impl Default for BehaviourConfig {
             gossipsub_heartbeat: Duration::from_secs(1),
             gossipsub_strict: false,
             mdns_query_interval: Duration::from_secs(5),
-            ping_interval: Duration::from_secs(15),
+            ping_interval: Duration::from_secs(1),
         }
     }
 }
@@ -110,7 +110,7 @@ impl SwarmBehaviour {
                 gossipsub::ValidationMode::Permissive
             })
             .flood_publish(true)
-            .mesh_outbound_min(0)
+            .mesh_outbound_min(1)
             .build()
             .map_err(|e| NetworkError::Behaviour(format!("GossipSub config error: {e}")))?;
 

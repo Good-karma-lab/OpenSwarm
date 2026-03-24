@@ -50,6 +50,9 @@ pub struct SwarmBehaviour {
 /// Configuration for constructing the composite behaviour.
 #[derive(Debug, Clone)]
 pub struct BehaviourConfig {
+    /// Human-readable agent name included in the libp2p Identify user-agent string.
+    /// Allows peers to learn names even from brief bootstrap connections.
+    pub agent_name: String,
     /// Protocol version string for identify.
     pub protocol_version: String,
     /// Kademlia protocol name.
@@ -67,6 +70,7 @@ pub struct BehaviourConfig {
 impl Default for BehaviourConfig {
     fn default() -> Self {
         Self {
+            agent_name: String::new(),
             protocol_version: wws_protocol::PROTOCOL_VERSION.to_string(),
             kad_protocol: "/wws/kad/1.0.0".to_string(),
             gossipsub_heartbeat: Duration::from_secs(1),
@@ -125,8 +129,16 @@ impl SwarmBehaviour {
             .map_err(|e| NetworkError::Behaviour(format!("mDNS init error: {e}")))?;
 
         // -- Identify --
+        // Encode the agent name in the user-agent so peers learn our name
+        // immediately on connect, even from brief bootstrap connections.
+        let agent_version = if config.agent_name.is_empty() {
+            format!("wws-connector/{}", wws_protocol::PROTOCOL_VERSION)
+        } else {
+            format!("wws-connector/{}/name:{}", wws_protocol::PROTOCOL_VERSION, config.agent_name)
+        };
         let identify_config =
             identify::Config::new(config.protocol_version.clone(), key.public())
+                .with_agent_version(agent_version)
                 .with_push_listen_addr_updates(true);
         let identify = identify::Behaviour::new(identify_config);
 

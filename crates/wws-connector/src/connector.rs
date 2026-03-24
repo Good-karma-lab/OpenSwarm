@@ -677,7 +677,13 @@ impl WwsConnector {
 
         let swarm_config = SwarmHostConfig {
             listen_addr,
-            transport: TransportConfig::default(),
+            transport: TransportConfig {
+                behaviour_config: wws_network::behaviour::BehaviourConfig {
+                    agent_name: config.agent.name.clone(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
             discovery: DiscoveryConfig {
                 mdns_enabled: config.network.mdns_enabled,
                 bootstrap_peers,
@@ -968,6 +974,19 @@ impl WwsConnector {
                     LogCategory::Peer,
                     format!("Disconnected: {}", peer),
                 );
+            }
+            NetworkEvent::PeerIdentified { peer, agent_version, .. } => {
+                // Extract agent name from user-agent: "wws-connector/<ver>/name:<name>"
+                // This fires on every connection (even brief bootstrap ones) so names
+                // propagate immediately without waiting for a gossipsub keepalive.
+                let did = format!("did:swarm:{}", peer);
+                let name = agent_version
+                    .split("/name:")
+                    .nth(1)
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                let mut state = self.state.write().await;
+                state.mark_member_seen_with_name(&did, name.as_deref());
             }
             NetworkEvent::PingRtt { peer, rtt } => {
                 tracing::trace!(peer = %peer, rtt_ms = rtt.as_millis(), "Ping RTT");

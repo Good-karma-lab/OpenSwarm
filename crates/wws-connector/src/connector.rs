@@ -947,7 +947,10 @@ impl WwsConnector {
                 tracing::debug!(peer = %peer, "Peer connected");
                 let mut state = self.state.write().await;
                 state.agent_set.add(peer.to_string());
-                state.mark_member_seen(&format!("did:swarm:{}", peer));
+                // Do NOT mark as member on raw P2P connect — transient bootstrap/NAT
+                // probe connections would pollute the member list with cryptographic IDs.
+                // Members are added only when they send an actual protocol message
+                // (keepalive, proposal, vote, etc.) which also carries their name.
                 state.push_log(
                     LogCategory::Peer,
                     format!("Connected: {}", peer),

@@ -43,6 +43,10 @@ pub struct SwarmHostConfig {
     pub event_buffer: usize,
     /// Interval between Kademlia random walks.
     pub random_walk_interval: Duration,
+    /// Persistent identity keypair.  When `Some`, the swarm reuses this
+    /// key so the PeerId survives restarts.  When `None`, a fresh random
+    /// Ed25519 keypair is generated (non-deterministic PeerId).
+    pub keypair: Option<libp2p::identity::Keypair>,
 }
 
 impl Default for SwarmHostConfig {
@@ -56,6 +60,7 @@ impl Default for SwarmHostConfig {
             command_buffer: 256,
             event_buffer: 256,
             random_walk_interval: Duration::from_secs(30),
+            keypair: None,
         }
     }
 }
@@ -408,7 +413,11 @@ impl SwarmHost {
     pub fn new(
         config: SwarmHostConfig,
     ) -> Result<(Self, SwarmHandle, mpsc::Receiver<NetworkEvent>), NetworkError> {
-        let mut swarm = transport::build_swarm(config.transport)?;
+        let mut swarm = if let Some(kp) = config.keypair {
+            transport::build_swarm_with_keypair(kp, config.transport)?
+        } else {
+            transport::build_swarm(config.transport)?
+        };
 
         // Start listening.
         swarm

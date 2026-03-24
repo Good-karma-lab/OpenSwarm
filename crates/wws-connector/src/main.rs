@@ -194,8 +194,15 @@ async fn main() -> anyhow::Result<()> {
     let key_path = cli.key_file.unwrap_or_else(|| {
         wws_connector::identity_store::default_key_path(&config.agent.name)
     });
-    let _signing_key = wws_connector::identity_store::load_or_generate_key(&key_path)?;
+    let signing_key = wws_connector::identity_store::load_or_generate_key(&key_path)?;
     tracing::info!(key_path = %key_path.display(), "Identity key loaded");
+
+    // Convert ed25519-dalek key → libp2p identity keypair for persistent PeerId.
+    let libp2p_keypair = {
+        let seed = signing_key.to_bytes();
+        wws_network::libp2p::identity::Keypair::ed25519_from_bytes(seed)
+            .expect("valid Ed25519 key")
+    };
 
     // Resolve bootstrap peers from all sources (CLI, DNS TXT, hardcoded).
     let resolved_peers = wws_connector::connector::WwsConnector::resolve_all_bootstrap_peers(
@@ -205,8 +212,8 @@ async fn main() -> anyhow::Result<()> {
     ).await;
     config.network.bootstrap_peers = resolved_peers;
 
-    // Create the connector.
-    let connector = WwsConnector::new(config.clone())?;
+    // Create the connector with persistent identity.
+    let connector = WwsConnector::new(config.clone(), Some(libp2p_keypair))?;
 
     // Get handles for the RPC server.
     let state = connector.shared_state();

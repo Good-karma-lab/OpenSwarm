@@ -43,11 +43,11 @@ pub const MAX_BLAST_RADIUS: u32 = 200;
 /// Default bootstrap domain for DNS TXT record discovery.
 pub const DEFAULT_BOOTSTRAP_DOMAIN: &str = "worldwideswarm.net";
 
-/// Fallback bootstrap peers resolved via DNS A record when TXT discovery fails.
+/// Fallback bootstrap peers used when DNS TXT discovery fails.
 /// Peer ID is omitted — learned during the Noise handshake.
-pub const DEFAULT_BOOTSTRAP_PEERS: &[&str] = &[
-    "/dns4/worldwideswarm.net/tcp/9000",
-];
+/// NOTE: libp2p TCP transport does not resolve /dns4/ multiaddrs;
+/// the DNS TXT record (`_wws._tcp.<domain>`) is the primary source.
+pub const DEFAULT_BOOTSTRAP_PEERS: &[&str] = &[];
 
 /// HTTP endpoints for the default bootstrap nodes (name announcement).
 pub const DEFAULT_BOOTSTRAP_HTTP: &[&str] = &[
@@ -671,7 +671,10 @@ impl WwsConnector {
     ///
     /// Initializes all subsystems but does not start the event loop.
     /// Call `run()` to start processing.
-    pub fn new(config: ConnectorConfig) -> Result<Self, anyhow::Error> {
+    pub fn new(
+        config: ConnectorConfig,
+        keypair: Option<wws_network::libp2p::identity::Keypair>,
+    ) -> Result<Self, anyhow::Error> {
         // Build network configuration.
         let listen_addr = config.network.listen_addr.parse()
             .map_err(|e| anyhow::anyhow!("Invalid listen address: {}", e))?;
@@ -693,6 +696,7 @@ impl WwsConnector {
                 bootstrap_peers,
                 ..Default::default()
             },
+            keypair,
             ..Default::default()
         };
 
@@ -3713,7 +3717,7 @@ mod tests {
     #[ignore = "Requires networking support"]
     async fn connector_new_with_default_config() {
         let config = ConnectorConfig::default();
-        let connector = WwsConnector::new(config);
+        let connector = WwsConnector::new(config, None);
         assert!(connector.is_ok(), "Connector should initialize with default config");
     }
 
@@ -3725,7 +3729,7 @@ mod tests {
         config.network.bootstrap_peers = vec![
             format!("/ip4/10.0.0.1/tcp/9000/p2p/{}", peer_id),
         ];
-        let connector = WwsConnector::new(config);
+        let connector = WwsConnector::new(config, None);
         assert!(connector.is_ok(), "Connector should initialize with bootstrap peers");
     }
 
@@ -3733,7 +3737,7 @@ mod tests {
     #[ignore = "Requires networking support"]
     async fn connector_run_connects_to_swarm_on_start() {
         let config = ConnectorConfig::default();
-        let connector = WwsConnector::new(config).unwrap();
+        let connector = WwsConnector::new(config, None).unwrap();
         let state = connector.shared_state();
 
         // Run the connector with a timeout; it will reach Running status

@@ -17,7 +17,7 @@ pub mod transport;
 
 pub use behaviour::SwarmBehaviour;
 pub use discovery::DiscoveryConfig;
-pub use libp2p::{Multiaddr, PeerId};
+pub use libp2p::{self, Multiaddr, PeerId};
 pub use size_estimator::SwarmSizeEstimator;
 pub use swarm_host::{NetworkEvent, SwarmHandle, SwarmHost, SwarmHostConfig};
 pub use topics::TopicManager;

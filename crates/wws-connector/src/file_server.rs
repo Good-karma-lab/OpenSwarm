@@ -755,8 +755,11 @@ async fn api_agents(State(web): State<WebState>) -> Json<serde_json::Value> {
             // back to the sender, so seen_secs is unreliable for the local agent.
             let is_self = id == s.agent_id.to_string();
             let connected = is_self || seen_secs.map(|v| v <= 60).unwrap_or(false);
-            let loop_active = is_self || last_task_poll_secs.map(|v| v <= 120).unwrap_or(false);
-            let not_responding = !is_self && last_task_poll_secs.map(|v| v > 180).unwrap_or(true);
+            // loop_active: true if agent polled recently OR was seen via P2P (proposal/vote/keepalive)
+            let loop_active = is_self
+                || last_task_poll_secs.map(|v| v <= 120).unwrap_or(false)
+                || seen_secs.map(|v| v <= 120).unwrap_or(false);
+            let not_responding = !is_self && seen_secs.map(|v| v > 180).unwrap_or(true);
             serde_json::json!({
                 "agent_id": id,
                 "name": s.agent_names.get(&id).cloned().unwrap_or_else(|| short_agent_label(&id)),
